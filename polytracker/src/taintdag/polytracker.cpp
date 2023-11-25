@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <system_error>
+#include <sys/stat.h>
 
 #include "taintdag/polytracker.h"
 #include "taintdag/util.h"
@@ -28,9 +29,10 @@ label_t PolyTracker::union_labels(label_t l1, label_t l2) {
 
 void PolyTracker::open_file(int fd, std::filesystem::path const &path) {
   // Try to determine the file size. If unknown, just mark it as unknown.
-  std::error_code ec;
-  uint64_t size = std::filesystem::file_size(path, ec);
-  if (ec) {
+  struct stat st;
+  int ret = fstat(fd, &st);
+  uint64_t size = st.st_size;
+  if (ret) {
     size = SourceEntry::InvalidSize;
   }
 
