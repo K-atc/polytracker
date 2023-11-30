@@ -1,9 +1,10 @@
 # Build base image
-FROM ubuntu:jammy as base
+FROM ubuntu:22.04 as base
 
 LABEL org.opencontainers.image.authors="evan.sultanik@trailofbits.com"
 
 ARG BUILD_TYPE="Release"
+ARG LLVM_VERSION="13"
 
 # NOTE(msurovic): We install `clang` and related bitcode utilities via `apt`
 # in version 12 because the `clang-13` package contains version 13.0.1 which
@@ -15,12 +16,13 @@ ARG BUILD_TYPE="Release"
 # Install base build dependencies via apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get -y update && apt-get -y install \
+RUN apt-get -y update
+RUN apt-get -y install \
   ninja-build                               \
   python3-pip                               \
   python3.8-dev                             \
   golang                                    \
-  clang-12                                  \
+  clang-${LLVM_VERSION}                     \
   cmake                                     \
   git                                       \
   file
@@ -29,11 +31,12 @@ RUN apt-get -y update && apt-get -y install \
 RUN pip3 install pytest blight
 
 # Install symlinks to clang and llvm bitcode tools
-RUN update-alternatives --install /usr/bin/opt opt /usr/bin/opt-12 10 && \
-    update-alternatives --install /usr/bin/llvm-link llvm-link /usr/bin/llvm-link-12 10 && \
-    update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-12 10 && \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-12 10 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-12 10 && \
+RUN update-alternatives --install /usr/bin/opt opt /usr/bin/opt-${LLVM_VERSION} 10 && \
+    update-alternatives --install /usr/bin/llvm-link llvm-link /usr/bin/llvm-link-${LLVM_VERSION} 10 && \
+    update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-${LLVM_VERSION} 10 && \
+    update-alternatives --install /usr/bin/llvm-dis llvm-dis /usr/bin/llvm-dis-${LLVM_VERSION} 10 && \
+    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${LLVM_VERSION} 10 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${LLVM_VERSION} 10 && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 
 # Install gllvm for builds with bitcode references embedded in binary build targets
@@ -136,3 +139,5 @@ ENV WLLVM_ARTIFACT_STORE=/project_artifacts
 RUN mkdir $WLLVM_ARTIFACT_STORE && mkdir $WLLVM_BC_STORE
 
 ENV PATH=$PATH:/polytracker-install/bin
+
+RUN apt install -y gdb ltrace strace

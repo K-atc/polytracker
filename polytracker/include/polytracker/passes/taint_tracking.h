@@ -21,8 +21,10 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   llvm::FunctionCallee taint_start_fn;
   // Log taint label affecting control flow
   llvm::FunctionCallee cond_br_log_fn;
+  llvm::FunctionCallee label_log_fn;
   // Helpers
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);
+  void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val);
   void insertTaintStartupCall(llvm::Module &mod);
   void declareLoggingFunctions(llvm::Module &mod);
 
@@ -32,6 +34,7 @@ public:
   void visitGetElementPtrInst(llvm::GetElementPtrInst &gep);
   void visitBranchInst(llvm::BranchInst &bi);
   void visitSwitchInst(llvm::SwitchInst &si);
+  void visitStoreInst(llvm::StoreInst &si);
 };
 
 } // namespace polytracker

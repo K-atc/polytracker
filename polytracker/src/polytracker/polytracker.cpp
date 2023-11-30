@@ -64,6 +64,35 @@ __dfsw___polytracker_log_conditional_branch(uint64_t conditional,
   __polytracker_log_conditional_branch(conditional_label);
 }
 
+extern "C" void __polytracker_log_label(
+  dfsan_label label, char *path, uint64_t line, uint64_t column) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+
+  FILE *file = fopen("label.log", "a");
+  if (file == NULL) {
+      perror("Cannot open label log file");
+      return;
+  }
+  if (label > 0) {
+    fprintf(file, "- { label: %d, path: %s, line: %lu, column: %lu }\n", label, path, line, column);
+  } else {
+    // DEBUG:
+    fprintf(file, "- { kind: debug, val_label: %d, path: %s, line: %lu, column: %lu }\n", val_label, path, line, column);
+  }
+  fclose(file);
+}
+
+extern "C" void
+__dfsw___polytracker_log_label(uint32_t _val, char *path, uint64_t line, uint64_t column, 
+                               dfsan_label val_label /* rest of params are omitted */) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+  __polytracker_log_label(val_label, path, line, column);
+}
+
 extern "C" void __taint_start() {
   taint_start();
   polytracker_initialize();

@@ -69,6 +69,18 @@ static void emitTaintArgvCall(llvm::Function &main) {
 
 } // namespace
 
+llvm::Constant *getOrCreateGlobalStringPtr(llvm::IRBuilder<> &IRB, std::string str) {
+    static std::unordered_map<std::string, llvm::Constant *> registered_global_strings;
+    
+    if (registered_global_strings.find(str) != registered_global_strings.end()) {
+        return registered_global_strings[str];
+    } else {
+        llvm::Constant *ptr = IRB.CreateGlobalStringPtr(str);
+        registered_global_strings.insert(std::make_pair(str, ptr));
+        return ptr;
+    }
+}
+
 void TaintTrackingPass::insertCondBrLogCall(llvm::Instruction &inst,
                                             llvm::Value *val) {
   llvm::IRBuilder<> ir(&inst);
@@ -77,6 +89,33 @@ void TaintTrackingPass::insertCondBrLogCall(llvm::Instruction &inst,
     dummy_val = ir.CreateExtractElement(val, uint64_t(0));
   }
   ir.CreateCall(cond_br_log_fn, {ir.CreateSExtOrTrunc(dummy_val, label_ty)});
+
+  llvm::DILocation *loc = inst.getDebugLoc();
+  if (loc) {
+    std::string path = 
+      loc->getDirectory().empty() ? 
+        loc->getFilename().str():
+        loc->getDirectory().str() + "/" + loc->getFilename().str();
+
+    ir.CreateCall(label_log_fn, {
+      ir.CreateSExtOrTrunc(dummy_val, label_ty),
+      getOrCreateGlobalStringPtr(ir, path),
+      ir.getInt64(loc->getLine()),
+      ir.getInt64(loc->getColumn()),
+    });
+  }
+}
+
+void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
+                                            llvm::Value *val) {
+  llvm::IRBuilder<> ir(&inst);
+  auto dbg = inst.getDebugLoc().getAsMDNode();
+  if (dbg) {
+    // ir.CreateCall(label_log_fn, {
+    //   ir.CreateSExtOrTrunc(val, label_ty), 
+    //   ir.getInt32(dbg->getMetadataID()),
+    // });
+  }
 }
 
 void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
@@ -104,11 +143,28 @@ void TaintTrackingPass::visitSwitchInst(llvm::SwitchInst &si) {
   insertCondBrLogCall(si, si.getCondition());
 }
 
+void TaintTrackingPass::visitStoreInst(llvm::StoreInst &si) {
+  insertLabelLogCall(si, si.getPointerOperand());
+}
+
 void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {
   llvm::IRBuilder<> ir(mod.getContext());
   taint_start_fn = mod.getOrInsertFunction("__taint_start", ir.getVoidTy());
   cond_br_log_fn = mod.getOrInsertFunction(
       "__polytracker_log_conditional_branch", ir.getVoidTy(), label_ty);
+  label_log_fn = mod.getOrInsertFunction(
+      "__polytracker_log_label", 
+      llvm::FunctionType::get(
+          ir.getVoidTy(),
+          { 
+            label_ty,
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+          }, 
+          false
+      )
+  );
 }
 
 llvm::PreservedAnalyses
