@@ -12,6 +12,7 @@
 EARLY_CONSTRUCT_EXTERN_GETTER(taintdag::PolyTracker, polytracker_tdag);
 
 static std::atomic_flag polytracker_init_flag = ATOMIC_FLAG_INIT;
+static FILE* polytracker_label_log_file = NULL;
 
 static bool polytracker_is_initialized() {
   return polytracker_init_flag.test(std::memory_order_relaxed);
@@ -70,18 +71,24 @@ extern "C" void __polytracker_log_label(
     return;
   }
 
-  FILE *file = fopen("label.log", "a");
-  if (file == NULL) {
-      perror("Cannot open label log file");
-      return;
+  if (polytracker_label_log_file == NULL) {
+    printf("Cannot open label log file.\n");
+    return;
   }
   if (label > 0) {
-    fprintf(file, "- { label: %d, path: %s, line: %lu, column: %lu }\n", label, path, line, column);
+    fprintf(
+      polytracker_label_log_file, 
+      "- { kind: label, label: %d, path: %s, line: %lu, column: %lu }\n", 
+      label, path, line, column
+    );
   } else {
     // DEBUG:
-    fprintf(file, "- { kind: debug, val_label: %d, path: %s, line: %lu, column: %lu }\n", val_label, path, line, column);
+    // fprintf(
+    //   polytracker_label_log_file,
+    //   "- { kind: debug, label: %d, path: %s, line: %lu, column: %lu }\n",
+    //   label, path, line, column
+    // );
   }
-  fclose(file);
 }
 
 extern "C" void
@@ -96,6 +103,18 @@ __dfsw___polytracker_log_label(uint32_t _val, char *path, uint64_t line, uint64_
 extern "C" void __taint_start() {
   taint_start();
   polytracker_initialize();
+
+  char *log_file_name = getenv("POLYPATH_LOG_FILE");
+  if (log_file_name) {
+    printf("POLYPATH_LOG_FILE: %s\n", log_file_name);
+    polytracker_label_log_file = fopen(log_file_name, "w");
+  } else {
+    polytracker_label_log_file = fopen("label.log", "w");
+  }
+
+  if (polytracker_label_log_file == NULL) {
+    perror("Cannot open label log file");
+  }
 }
 
 extern "C" void __polytracker_taint_argv(int argc, char *argv[]) {

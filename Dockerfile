@@ -141,5 +141,5 @@ RUN mkdir $WLLVM_ARTIFACT_STORE && mkdir $WLLVM_BC_STORE
 ENV PATH=$PATH:/polytracker-install/bin
 
 ### Install utilities
-RUN apt install -y gdb ltrace strace
+RUN apt install -y gdb ltrace strace curl
 RUN curl -sSLf https://scala-cli.virtuslab.org/get | sh
