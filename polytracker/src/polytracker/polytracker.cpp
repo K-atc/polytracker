@@ -66,7 +66,7 @@ __dfsw___polytracker_log_conditional_branch(uint64_t conditional,
 }
 
 extern "C" void __polytracker_log_label(
-  dfsan_label label, char *path, uint64_t line, uint64_t column) {
+  dfsan_label label, char* opcode, char *path, uint64_t line, uint64_t column, char* function) {
   if (!polytracker_is_initialized()) {
     return;
   }
@@ -78,8 +78,8 @@ extern "C" void __polytracker_log_label(
   if (label > 0) {
     fprintf(
       polytracker_label_log_file, 
-      "- { kind: label, label: %d, path: %s, line: %lu, column: %lu }\n", 
-      label, path, line, column
+      "- { kind: label, label: %d, opcode: %s, path: %s, line: %lu, column: %lu, function: %s }\n", 
+      label, opcode, path, line, column, function
     );
   } else {
     // DEBUG:
@@ -92,12 +92,12 @@ extern "C" void __polytracker_log_label(
 }
 
 extern "C" void
-__dfsw___polytracker_log_label(uint32_t _val, char *path, uint64_t line, uint64_t column, 
+__dfsw___polytracker_log_label(uint32_t _val, char* opcode, char *path, uint64_t line, uint64_t column, char* function,
                                dfsan_label val_label /* rest of params are omitted */) {
   if (!polytracker_is_initialized()) {
     return;
   }
-  __polytracker_log_label(val_label, path, line, column);
+  __polytracker_log_label(val_label, opcode, path, line, column, function);
 }
 
 extern "C" void __taint_start() {
@@ -117,8 +117,10 @@ extern "C" void __taint_start() {
   }
 }
 
+bool finished_taint_start = false;
 extern "C" void __polytracker_taint_argv(int argc, char *argv[]) {
   polytracker::taint_argv(argc, argv);
+  finished_taint_start = true;
 }
 
 extern "C" uint64_t __dfsw___polytracker_log_tainted_control_flow(

@@ -34,6 +34,7 @@ public:
   void visitGetElementPtrInst(llvm::GetElementPtrInst &gep);
   void visitBranchInst(llvm::BranchInst &bi);
   void visitSwitchInst(llvm::SwitchInst &si);
+  void visitLoadInst(llvm::LoadInst &li);
   void visitStoreInst(llvm::StoreInst &si);
 };
 

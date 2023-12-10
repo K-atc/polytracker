@@ -89,21 +89,13 @@ void TaintTrackingPass::insertCondBrLogCall(llvm::Instruction &inst,
     dummy_val = ir.CreateExtractElement(val, uint64_t(0));
   }
   ir.CreateCall(cond_br_log_fn, {ir.CreateSExtOrTrunc(dummy_val, label_ty)});
+}
 
-  llvm::DILocation *loc = inst.getDebugLoc();
-  if (loc) {
-    std::string path = 
-      loc->getDirectory().empty() ? 
-        loc->getFilename().str():
-        loc->getDirectory().str() + "/" + loc->getFilename().str();
-
-    ir.CreateCall(label_log_fn, {
-      ir.CreateSExtOrTrunc(dummy_val, label_ty),
-      getOrCreateGlobalStringPtr(ir, path),
-      ir.getInt64(loc->getLine()),
-      ir.getInt64(loc->getColumn()),
-    });
-  }
+void print(const llvm::Instruction &inst) {
+    std::string str;
+    llvm::raw_string_ostream s(str);
+    inst.print(s);
+    llvm::errs() << str.substr(0, 64).substr(0, str.find("\n"));
 }
 
 void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
@@ -111,10 +103,32 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
   llvm::IRBuilder<> ir(&inst);
   auto dbg = inst.getDebugLoc().getAsMDNode();
   if (dbg) {
-    // ir.CreateCall(label_log_fn, {
-    //   ir.CreateSExtOrTrunc(val, label_ty), 
-    //   ir.getInt32(dbg->getMetadataID()),
-    // });
+    llvm::DILocation *loc = inst.getDebugLoc();
+    if (loc) {
+      std::string opcode = 
+        inst.getOpcodeName() ? 
+        inst.getOpcodeName() :
+        "";
+      std::string path = 
+        loc->getDirectory().empty() ? 
+          loc->getFilename().str() :
+          loc->getDirectory().str() + "/" + loc->getFilename().str();
+      std::string function = 
+        inst.getFunction() ? 
+          inst.getFunction()->getName().str() :
+          "";
+
+      ir.CreateCall(label_log_fn, {
+        val->getType()->isPointerTy() ? 
+          ir.CreatePtrToInt(val, ir.getInt64Ty()) :
+          ir.CreateSExtOrTrunc(val, ir.getInt64Ty()),
+        getOrCreateGlobalStringPtr(ir, opcode),
+        getOrCreateGlobalStringPtr(ir, path),
+        ir.getInt64(loc->getLine()),
+        ir.getInt64(loc->getColumn()),
+        getOrCreateGlobalStringPtr(ir, function),
+      });
+    }
   }
 }
 
@@ -129,7 +143,9 @@ void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &gep) {
       continue;
     }
     insertCondBrLogCall(gep, idx);
+    insertLabelLogCall(gep, idx);
   }
+  // insertLabelLogCall(gep, gep.getPointerOperand());
 }
 
 void TaintTrackingPass::visitBranchInst(llvm::BranchInst &bi) {
@@ -141,6 +157,10 @@ void TaintTrackingPass::visitBranchInst(llvm::BranchInst &bi) {
 
 void TaintTrackingPass::visitSwitchInst(llvm::SwitchInst &si) {
   insertCondBrLogCall(si, si.getCondition());
+}
+
+void TaintTrackingPass::visitLoadInst(llvm::LoadInst &li) {
+  insertLabelLogCall(li, li.getPointerOperand());
 }
 
 void TaintTrackingPass::visitStoreInst(llvm::StoreInst &si) {
@@ -156,11 +176,13 @@ void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {
       "__polytracker_log_label", 
       llvm::FunctionType::get(
           ir.getVoidTy(),
-          { 
-            label_ty,
+          {
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
             ir.getInt8PtrTy(),
             ir.getInt64Ty(),
             ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
           }, 
           false
       )

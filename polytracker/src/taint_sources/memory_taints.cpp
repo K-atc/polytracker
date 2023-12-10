@@ -1,12 +1,32 @@
 #include "polytracker/taint_sources.h"
+#include "polytracker/early_construct.h"
+#include "taintdag/polytracker.h"
 #include <vector>
+#include <iostream>
+
+EARLY_CONSTRUCT_EXTERN_GETTER(taintdag::PolyTracker, polytracker_tdag);
+extern bool finished_taint_start;
 
 EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
                                dfsan_label *ret_label) {
   void *new_mem = malloc(size);
   *ret_label = 0;
+
+  // Make sure we have executed taint_start() before we try to create taint sources
+  if (finished_taint_start) {
+    auto rng = get_polytracker_tdag().create_taint_source(
+      "__dfsw_malloc", {reinterpret_cast<uint8_t *>(new_mem), size});
+    if (rng) {
+      *ret_label = rng->first;
+      fprintf(stderr, "[*] Create taint source: address=%p, label=%d\n", new_mem, rng->first);
+    } else {
+      fprintf(stderr, "[!] Failed to create taint source for malloc\n");
+    }
+  }
+
   return new_mem;
 }
+
 // TODO (Carson) Capture heap allocations to replicate TIFF bug
 EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
                                 dfsan_label ptr_label, dfsan_label size_label,

@@ -1,10 +1,9 @@
 # Build base image
 FROM ubuntu:22.04 as base
-
-LABEL org.opencontainers.image.authors="evan.sultanik@trailofbits.com"
-
 ARG BUILD_TYPE="Release"
 ARG LLVM_VERSION="13"
+
+LABEL org.opencontainers.image.authors="evan.sultanik@trailofbits.com"
 
 # NOTE(msurovic): We install `clang` and related bitcode utilities via `apt`
 # in version 12 because the `clang-13` package contains version 13.0.1 which
@@ -17,6 +16,8 @@ ARG LLVM_VERSION="13"
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get -y update
+RUN apt-get -y install lsb-release wget software-properties-common gnupg
+RUN bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
 RUN apt-get -y install \
   ninja-build                               \
   python3-pip                               \
@@ -142,4 +143,3 @@ ENV PATH=$PATH:/polytracker-install/bin
 
 ### Install utilities
 RUN apt install -y gdb ltrace strace curl
-RUN curl -sSLf https://scala-cli.virtuslab.org/get | sh
