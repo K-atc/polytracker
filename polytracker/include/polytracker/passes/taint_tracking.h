@@ -10,8 +10,17 @@
 
 #include <llvm/IR/InstVisitor.h>
 #include <llvm/IR/PassManager.h>
+#include <map>
+#include <inttypes.h>
+
 
 namespace polytracker {
+
+struct VariableInfo {
+  std::string name;
+  std::string path;
+  uint64_t line;
+};
 
 class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
                           public llvm::InstVisitor<TaintTrackingPass> {
@@ -21,7 +30,11 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   llvm::FunctionCallee taint_start_fn;
   // Log taint label affecting control flow
   llvm::FunctionCallee cond_br_log_fn;
+  // Log relations of taint labels and variables
   llvm::FunctionCallee label_log_fn;
+
+  std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
+  
   // Helpers
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);
   void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val);
@@ -34,8 +47,10 @@ public:
   void visitGetElementPtrInst(llvm::GetElementPtrInst &gep);
   void visitBranchInst(llvm::BranchInst &bi);
   void visitSwitchInst(llvm::SwitchInst &si);
-  void visitLoadInst(llvm::LoadInst &li);
-  void visitStoreInst(llvm::StoreInst &si);
+  void visitLoadInst(llvm::LoadInst &II);
+  void visitStoreInst(llvm::StoreInst &II);
+  void visitDbgDeclareInst(llvm::DbgDeclareInst &II);
+  void visitIntrinsicInst(llvm::IntrinsicInst &ii);
 };
 
 } // namespace polytracker

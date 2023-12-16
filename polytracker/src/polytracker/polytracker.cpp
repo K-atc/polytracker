@@ -81,14 +81,8 @@ extern "C" void __polytracker_log_label(
       "- { kind: label, label: %d, opcode: %s, path: %s, line: %lu, column: %lu, function: %s }\n", 
       label, opcode, path, line, column, function
     );
-  } else {
-    // DEBUG:
-    // fprintf(
-    //   polytracker_label_log_file,
-    //   "- { kind: debug, label: %d, path: %s, line: %lu, column: %lu }\n",
-    //   label, path, line, column
-    // );
   }
+  fflush(polytracker_label_log_file);
 }
 
 extern "C" void

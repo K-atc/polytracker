@@ -17,6 +17,8 @@
 #include "polytracker/dfsan_types.h"
 #include "polytracker/passes/utils.h"
 
+#include <regex>
+
 static llvm::cl::list<std::string> ignore_lists(
     "pt-taint-ignore-list",
     llvm::cl::desc(
@@ -85,7 +87,7 @@ void TaintTrackingPass::insertCondBrLogCall(llvm::Instruction &inst,
                                             llvm::Value *val) {
   llvm::IRBuilder<> ir(&inst);
   auto dummy_val{val};
-  if (inst.getType()->isVectorTy()) {
+  if (llvm::Type *type = inst.getType(); type && type->isVectorTy()) {
     dummy_val = ir.CreateExtractElement(val, uint64_t(0));
   }
   ir.CreateCall(cond_br_log_fn, {ir.CreateSExtOrTrunc(dummy_val, label_ty)});
@@ -95,40 +97,81 @@ void print(const llvm::Instruction &inst) {
     std::string str;
     llvm::raw_string_ostream s(str);
     inst.print(s);
-    llvm::errs() << str.substr(0, 64).substr(0, str.find("\n"));
+    llvm::errs() << str.substr(0, 160).substr(0, str.find("\n")) << "\n";
+}
+
+std::string symbolize(const llvm::Value *val) {
+  if (!val) {
+    return {};
+  }
+
+  std::string str;
+  llvm::raw_string_ostream s(str);
+  val->print(s);
+
+  std::regex pattern("%[0-9]+");
+
+  std::sregex_iterator it(str.begin(), str.end(), pattern);
+  std::sregex_iterator end;
+
+  while (it != end) {
+    return it->str();
+  }
+  return str;
 }
 
 void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
                                             llvm::Value *val) {
-  llvm::IRBuilder<> ir(&inst);
-  auto dbg = inst.getDebugLoc().getAsMDNode();
-  if (dbg) {
-    llvm::DILocation *loc = inst.getDebugLoc();
-    if (loc) {
-      std::string opcode = 
-        inst.getOpcodeName() ? 
-        inst.getOpcodeName() :
-        "";
-      std::string path = 
-        loc->getDirectory().empty() ? 
-          loc->getFilename().str() :
-          loc->getDirectory().str() + "/" + loc->getFilename().str();
-      std::string function = 
-        inst.getFunction() ? 
-          inst.getFunction()->getName().str() :
-          "";
+  if (!val) {
+    return;
+  }
 
-      ir.CreateCall(label_log_fn, {
-        val->getType()->isPointerTy() ? 
-          ir.CreatePtrToInt(val, ir.getInt64Ty()) :
-          ir.CreateSExtOrTrunc(val, ir.getInt64Ty()),
-        getOrCreateGlobalStringPtr(ir, opcode),
-        getOrCreateGlobalStringPtr(ir, path),
-        ir.getInt64(loc->getLine()),
-        ir.getInt64(loc->getColumn()),
-        getOrCreateGlobalStringPtr(ir, function),
-      });
-    }
+  llvm::IRBuilder<> ir(&inst);
+  auto dbg = value2Metadata.find(val);
+  // if (dbg != value2Metadata.end()) {
+    // auto loc = dbg->second;
+    llvm::DILocation *loc = inst.getDebugLoc();
+    
+  if (!loc) {
+    return;
+  }
+
+  llvm::errs() << "[*] insertLabelLogCall: found";
+  if (dbg != value2Metadata.end()) {
+    llvm::errs() << " [OK]\n";
+  } else {
+    llvm::errs() << " [Mising]\n";
+    print(inst);
+  }
+
+  std::string opcode = 
+    inst.getOpcodeName() ? 
+    inst.getOpcodeName() :
+    "";
+  std::string path = 
+    loc->getDirectory().empty() ? 
+      loc->getFilename().str() :
+      loc->getDirectory().str() + "/" + loc->getFilename().str();
+  std::string function = 
+    inst.getFunction() ? 
+      inst.getFunction()->getName().str() :
+      "";
+
+  if (llvm::Type *type = val->getType(); type && (type->isPointerTy() || type->isIntegerTy() || type->isFloatingPointTy())) {
+    ir.CreateCall(label_log_fn, {
+      type->isPointerTy() ? 
+        ir.CreatePtrToInt(val, ir.getInt64Ty()) :
+          type->isFloatingPointTy() ? 
+            ir.CreateFPToSI(val, ir.getInt64Ty()) :
+            type->isVectorTy() ?
+              ir.CreateExtractVector(ir.getInt64Ty(), val, 0) : // TODO: vectorの要素数だけ繰り返す
+              ir.CreateSExtOrTrunc(val, ir.getInt64Ty()),
+      getOrCreateGlobalStringPtr(ir, opcode),
+      getOrCreateGlobalStringPtr(ir, path),
+      ir.getInt64(loc->getLine()),
+      ir.getInt64(0),
+      getOrCreateGlobalStringPtr(ir, function),
+    });
   }
 }
 
@@ -145,7 +188,6 @@ void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &gep) {
     insertCondBrLogCall(gep, idx);
     insertLabelLogCall(gep, idx);
   }
-  // insertLabelLogCall(gep, gep.getPointerOperand());
 }
 
 void TaintTrackingPass::visitBranchInst(llvm::BranchInst &bi) {
@@ -159,12 +201,50 @@ void TaintTrackingPass::visitSwitchInst(llvm::SwitchInst &si) {
   insertCondBrLogCall(si, si.getCondition());
 }
 
-void TaintTrackingPass::visitLoadInst(llvm::LoadInst &li) {
-  insertLabelLogCall(li, li.getPointerOperand());
+void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
+  // print(II); // DEBUG: 
+  if (II.getDebugLoc()) {
+    llvm::IRBuilder<> ir(&II);
+    insertLabelLogCall(II, ir.CreateLoad(II.getPointerOperand()));
+    // insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
+    insertLabelLogCall(II, II.getPointerOperand());
+  }
 }
 
-void TaintTrackingPass::visitStoreInst(llvm::StoreInst &si) {
-  insertLabelLogCall(si, si.getPointerOperand());
+void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
+  // print(II); // DEBUG: 
+  if (II.getDebugLoc()) {
+    insertLabelLogCall(II, II.getValueOperand());
+    insertLabelLogCall(II, II.getPointerOperand());
+  }
+}
+
+void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
+  print(II);
+  llvm::DILocalVariable *loc = II.getVariable();
+  if (loc) {
+    std::string path = 
+      loc->getDirectory().empty() ? 
+        loc->getFilename().str() :
+        loc->getDirectory().str() + "/" + loc->getFilename().str();
+
+    if (llvm::MetadataAsValue *md = cast<llvm::MetadataAsValue>(II.getOperand(0))) {
+      if (llvm::ValueAsMetadata* val = cast<llvm::ValueAsMetadata>(md->getMetadata())) {
+        if (val->getValue()) {
+          value2Metadata[val->getValue()] = loc;
+        }
+      }
+    }
+  }
+}
+
+void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &ii) {
+  if (ii.getIntrinsicID() == llvm::Intrinsic::lifetime_end) {
+    llvm::errs() << "[*] visitIntrinsicInst: ";
+    print(ii);
+
+    insertLabelLogCall(ii, ii.getOperand(1));
+  }
 }
 
 void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {

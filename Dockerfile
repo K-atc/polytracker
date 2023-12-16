@@ -16,8 +16,7 @@ LABEL org.opencontainers.image.authors="evan.sultanik@trailofbits.com"
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get -y update
-RUN apt-get -y install lsb-release wget software-properties-common gnupg
-RUN bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+RUN apt-get -y install lsb-release software-properties-common
 RUN apt-get -y install \
   ninja-build                               \
   python3-pip                               \

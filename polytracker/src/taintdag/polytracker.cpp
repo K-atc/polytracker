@@ -62,8 +62,8 @@ taint_range_t PolyTracker::create_source_taint(source_index_t src,
   // NOTE(hbrodin): The const_cast is unfortunate. Memory pointed to by &c will
   // not be modified, but a corresponding shadow memory region will be.
   auto lbl = rng.first;
-  for (auto &c : dst) {
-    dfsan_set_label(lbl++, const_cast<uint8_t *>(&c), sizeof(char));
+  for (auto i = 0; i < dst.size(); i++) {
+    dfsan_set_label(lbl++, const_cast<uint8_t *>(&dst[i]), sizeof(char));
   }
   return rng;
 }

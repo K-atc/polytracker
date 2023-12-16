@@ -1,3 +1,6 @@
+# set(CMAKE_BUILD_TYPE Debug)
+# set(CMAKE_CXX_FLAGS -g)
+
 if(APPLE)
   # User teor2345 reports that this is required to make things work on MacOS X.
   set(CMAKE_MODULE_LINK_FLAGS
