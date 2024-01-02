@@ -4,6 +4,9 @@ install(
         fontconfig
         freetype
         gmp
+        jbig
+        libdeflate
+        libjpeg
         libz
         ssl
         xml2
