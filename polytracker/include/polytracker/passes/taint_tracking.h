@@ -34,6 +34,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   llvm::FunctionCallee label_log_fn;
 
   std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
+  bool debug_mode = false;
   
   // Helpers
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);

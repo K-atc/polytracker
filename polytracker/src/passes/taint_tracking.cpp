@@ -136,12 +136,14 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
     return;
   }
 
-  llvm::errs() << "[*] insertLabelLogCall: found";
-  if (dbg != value2Metadata.end()) {
-    llvm::errs() << " [OK]\n";
-  } else {
-    llvm::errs() << " [Mising]\n";
-    print(inst);
+  if (debug_mode) {
+    llvm::errs() << "[*] insertLabelLogCall: found"; // DEBUG:
+    if (dbg != value2Metadata.end()) {
+      llvm::errs() << " [OK]\n"; // DEBUG:
+    } else {
+      llvm::errs() << " [Mising]\n"; // DEBUG:
+      print(inst);
+    }
   }
 
   std::string opcode = 
@@ -220,7 +222,9 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
 }
 
 void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
-  print(II);
+  if (debug_mode) {
+    print(II); // DEBUG: 
+  }
   llvm::DILocalVariable *loc = II.getVariable();
   if (loc) {
     std::string path = 
@@ -240,8 +244,8 @@ void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
 
 void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &ii) {
   if (ii.getIntrinsicID() == llvm::Intrinsic::lifetime_end) {
-    llvm::errs() << "[*] visitIntrinsicInst: ";
-    print(ii);
+    // llvm::errs() << "[*] visitIntrinsicInst: "; // DEBUG: 
+    // print(ii); // DEBUG: 
 
     insertLabelLogCall(ii, ii.getOperand(1));
   }
@@ -274,6 +278,9 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
   label_ty = llvm::IntegerType::get(mod.getContext(), DFSAN_LABEL_BITS);
   declareLoggingFunctions(mod);
   auto ignore{readIgnoreLists(ignore_lists)};
+  if (getenv("POLY_DEBUG")) {
+    debug_mode = true;
+  }
   for (auto &fn : mod) {
     if (ignore.count(fn.getName().str())) {
       continue;
