@@ -10,6 +10,7 @@
 
 #include <llvm/IR/InstVisitor.h>
 #include <llvm/IR/PassManager.h>
+#include <llvm/IR/IRBuilder.h>
 #include <map>
 #include <inttypes.h>
 
@@ -35,6 +36,9 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
 
   std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
   bool debug_mode = false;
+
+  llvm::Constant *getOrCreateGlobalStringPtr(llvm::IRBuilder<> &IRB, std::string str);
+  std::unordered_map<std::string, llvm::Constant *> registered_global_strings;
   
   // Helpers
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);

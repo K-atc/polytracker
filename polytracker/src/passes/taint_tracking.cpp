@@ -71,9 +71,7 @@ static void emitTaintArgvCall(llvm::Function &main) {
 
 } // namespace
 
-llvm::Constant *getOrCreateGlobalStringPtr(llvm::IRBuilder<> &IRB, std::string str) {
-    static std::unordered_map<std::string, llvm::Constant *> registered_global_strings;
-    
+llvm::Constant *TaintTrackingPass::getOrCreateGlobalStringPtr(llvm::IRBuilder<> &IRB, std::string str) {    
     if (registered_global_strings.find(str) != registered_global_strings.end()) {
         return registered_global_strings[str];
     } else {
@@ -122,7 +120,7 @@ std::string symbolize(const llvm::Value *val) {
 
 void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
                                             llvm::Value *val) {
-  if (!val) {
+  if (val == NULL) {
     return;
   }
 
@@ -132,7 +130,7 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
     // auto loc = dbg->second;
     llvm::DILocation *loc = inst.getDebugLoc();
     
-  if (!loc) {
+  if (loc == NULL) {
     return;
   }
 
@@ -159,7 +157,8 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
       inst.getFunction()->getName().str() :
       "";
 
-  if (llvm::Type *type = val->getType(); type && (type->isPointerTy() || type->isIntegerTy() || type->isFloatingPointTy())) {
+  llvm::Type *type = val->getType(); 
+  if (type != NULL && (type->isPointerTy() || type->isIntegerTy() || type->isFloatingPointTy())) {
     ir.CreateCall(label_log_fn, {
       type->isPointerTy() ? 
         ir.CreatePtrToInt(val, ir.getInt64Ty()) :
@@ -183,6 +182,9 @@ void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
 }
 
 void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &gep) {
+  if (debug_mode) {
+    print(II); // DEBUG: 
+  }
   for (auto &idx : gep.indices()) {
     if (llvm::isa<llvm::ConstantInt>(idx)) {
       continue;
@@ -204,21 +206,23 @@ void TaintTrackingPass::visitSwitchInst(llvm::SwitchInst &si) {
 }
 
 void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
-  // print(II); // DEBUG: 
-  if (II.getDebugLoc()) {
+  if (debug_mode) {
+    print(II); // DEBUG: 
+  }
+  if (II.getPointerOperand() != NULL) { // NULL check
     llvm::IRBuilder<> ir(&II);
     insertLabelLogCall(II, ir.CreateLoad(II.getPointerOperand()));
-    // insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
+    /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
     insertLabelLogCall(II, II.getPointerOperand());
   }
 }
 
 void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
-  // print(II); // DEBUG: 
-  if (II.getDebugLoc()) {
-    insertLabelLogCall(II, II.getValueOperand());
-    insertLabelLogCall(II, II.getPointerOperand());
+  if (debug_mode) {
+    print(II); // DEBUG: 
   }
+  insertLabelLogCall(II, II.getValueOperand());
+  insertLabelLogCall(II, II.getPointerOperand());
 }
 
 void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
@@ -227,11 +231,6 @@ void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
   }
   llvm::DILocalVariable *loc = II.getVariable();
   if (loc) {
-    std::string path = 
-      loc->getDirectory().empty() ? 
-        loc->getFilename().str() :
-        loc->getDirectory().str() + "/" + loc->getFilename().str();
-
     if (llvm::MetadataAsValue *md = cast<llvm::MetadataAsValue>(II.getOperand(0))) {
       if (llvm::ValueAsMetadata* val = cast<llvm::ValueAsMetadata>(md->getMetadata())) {
         if (val->getValue()) {
@@ -244,10 +243,12 @@ void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
 
 void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &ii) {
   if (ii.getIntrinsicID() == llvm::Intrinsic::lifetime_end) {
+    if (debug_mode) {
     // llvm::errs() << "[*] visitIntrinsicInst: "; // DEBUG: 
     // print(ii); // DEBUG: 
+    }
 
-    insertLabelLogCall(ii, ii.getOperand(1));
+    // insertLabelLogCall(ii, ii.getOperand(1));
   }
 }
 
@@ -290,6 +291,7 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
     if (fn.getName() == "main") {
       emitTaintArgvCall(fn);
     }
+    value2Metadata.clear();
   }
   insertTaintStartupCall(mod);
   return llvm::PreservedAnalyses::none();
