@@ -276,7 +276,7 @@ For a demo of PolyTracker running on Poppler utils version 0.84.0 run this
 command:
 
 ```commandline
-docker build -t trailofbits/polytracker-demo-poppler -f examples/pdf/Dockerfile-poppler.demo .
+docker build -t trailofbits/polytracker-demo-poppler -f examples/Dockerfile-poppler.demo .
 ```
 
 All the poppler utils will be located in
