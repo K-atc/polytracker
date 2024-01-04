@@ -157,7 +157,7 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
       inst.getFunction()->getName().str() :
       "";
 
-  llvm::Type *type = val->getType(); 
+  llvm::Type *type = val->getType();
   if (type != NULL && (type->isPointerTy() || type->isIntegerTy() || type->isFloatingPointTy())) {
     ir.CreateCall(label_log_fn, {
       type->isPointerTy() ? 
@@ -181,16 +181,16 @@ void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
   llvm::appendToGlobalCtors(mod, func, 0);
 }
 
-void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &gep) {
+void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
   if (debug_mode) {
     print(II); // DEBUG: 
   }
-  for (auto &idx : gep.indices()) {
+  for (auto &idx : II.indices()) {
     if (llvm::isa<llvm::ConstantInt>(idx)) {
       continue;
     }
-    insertCondBrLogCall(gep, idx);
-    insertLabelLogCall(gep, idx);
+    insertCondBrLogCall(II, idx);
+    insertLabelLogCall(II, idx);
   }
 }
 
@@ -211,8 +211,11 @@ void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
   }
   if (II.getPointerOperand() != NULL) { // NULL check
     llvm::IRBuilder<> ir(&II);
-    insertLabelLogCall(II, ir.CreateLoad(II.getPointerOperand()));
-    /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
+    llvm::Type *type = II.getType();
+    if (type && type->isIntegerTy()) {
+      insertLabelLogCall(II, ir.CreateLoad(type, II.getPointerOperand()));
+      /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => errr: Instruction does not dominate all uses!
+    }
     insertLabelLogCall(II, II.getPointerOperand());
   }
 }
@@ -286,6 +289,10 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
     if (ignore.count(fn.getName().str())) {
       continue;
     }
+    if (fn.getName().startswith("__polytracker_")) {
+      continue;
+    }
+    llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
     visit(fn);
     // If this is the main function, insert a taint-argv call
     if (fn.getName() == "main") {

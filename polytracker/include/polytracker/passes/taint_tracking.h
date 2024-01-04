@@ -49,7 +49,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
 public:
   llvm::PreservedAnalyses run(llvm::Module &mod,
                               llvm::ModuleAnalysisManager &mam);
-  void visitGetElementPtrInst(llvm::GetElementPtrInst &gep);
+  void visitGetElementPtrInst(llvm::GetElementPtrInst &II);
   void visitBranchInst(llvm::BranchInst &bi);
   void visitSwitchInst(llvm::SwitchInst &si);
   void visitLoadInst(llvm::LoadInst &II);
