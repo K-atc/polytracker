@@ -10,6 +10,7 @@
 #include <iostream>
 
 EARLY_CONSTRUCT_EXTERN_GETTER(taintdag::PolyTracker, polytracker_tdag);
+static bool log_untainted_labels_mode = false;
 
 static std::atomic_flag polytracker_init_flag = ATOMIC_FLAG_INIT;
 static FILE* polytracker_label_log_file = NULL;
@@ -75,7 +76,7 @@ extern "C" void __polytracker_log_label(
     printf("Cannot open label log file.\n");
     return;
   }
-  if (label > 0) {
+  if (label > 0 || log_untainted_labels_mode) {
     fprintf(
       polytracker_label_log_file, 
       "- { kind: label, label: %d, opcode: %s, path: %s, line: %lu, column: %lu, function: %s }\n", 
@@ -108,6 +109,11 @@ extern "C" void __taint_start() {
 
   if (polytracker_label_log_file == NULL) {
     perror("Cannot open label log file");
+  }
+
+  if (getenv("POLY_LOG_UNTAINTED_LABELS")) {
+    printf("POLY_LOG_UNTAINTED_LABELS: true\n");
+    log_untainted_labels_mode = true;
   }
 }
 

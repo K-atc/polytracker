@@ -21,7 +21,7 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
     auto rng = get_polytracker_tdag().create_taint_source(
       name, {reinterpret_cast<uint8_t *>(new_mem), size});
     if (rng) {
-      fprintf(stderr, "[*] Create taint source: address=%p, label=%d:%d\n", new_mem, rng->first, rng->second);
+      fprintf(stderr, "[*] Create taint source: address=%p, size=%#lx, label=%d:%d\n", new_mem, size, rng->first, rng->second);
       *ret_label = rng->first;
     } else {
       fprintf(stderr, "[!] Failed to create taint source for malloc: address=%p, size=%#lx\n", new_mem, size);
@@ -64,4 +64,7 @@ EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
   return new_mem;
 }
 
-EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) { free(mem); }
+EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) { 
+  // NOTE: Omit free() to avoid reuse heap memory
+  // free(mem); 
+}
