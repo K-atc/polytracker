@@ -170,13 +170,14 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
       getOrCreateGlobalStringPtr(ir, opcode),
       getOrCreateGlobalStringPtr(ir, path),
       ir.getInt64(loc->getLine()),
-      ir.getInt64(0),
+      ir.getInt64(loc->getColumn()),
       getOrCreateGlobalStringPtr(ir, function),
     });
   }
 }
 
 void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
+  assert(taint_start_fn.getCallee());
   auto func{llvm::cast<llvm::Function>(taint_start_fn.getCallee())};
   llvm::appendToGlobalCtors(mod, func, 0);
 }
@@ -285,13 +286,42 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
   if (getenv("POLY_DEBUG")) {
     debug_mode = true;
   }
+  if (getenv("POLY_NO_INSTRUMENT")) {
+    no_instrument_mode = true;
+  }
   for (auto &fn : mod) {
+    if (no_instrument_mode) {
+      break;
+    }
+
+    llvm::errs() << "[*] TaintTrackingPass: enter: " << fn.getName() << "\n"; // DEBUG:
+
     if (ignore.count(fn.getName().str())) {
       continue;
     }
     if (fn.getName().startswith("__polytracker_")) {
       continue;
     }
+    if (fn.isIntrinsic()) {
+      continue;
+    }
+    if (fn.empty()) {
+      continue;
+    }
+    // if (fn.hasHiddenVisibility()) { // 反例：_ZNK6Object8isStreamEv (in poppler)
+    //   continue;
+    // }
+    if (!fn.getMetadata("dbg") && fn.getName() != "main") {
+      llvm::errs() << "[*] TaintTrackingPass: no !dbg " << fn.getName() << "\n"; // DEBUG:
+      continue;
+    }
+    if (fn.getName().startswith("_ZN12_GLOBAL__N_")) {
+      continue;
+    }
+    if (fn.getName().startswith("_ZNK12_GLOBAL__N_")) {
+      continue;
+    }
+
     llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
     visit(fn);
     // If this is the main function, insert a taint-argv call
@@ -300,7 +330,15 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
     }
     value2Metadata.clear();
   }
+  
+  registered_global_strings.clear();
+  if (no_instrument_mode) {
+    llvm::errs() << "[*] TaintTrackingPass: Visited all functions\n"; // DEBUG:
+  }
+
   insertTaintStartupCall(mod);
+  
+  llvm::errs() << "[*] TaintTrackingPass: Finished run()\n"; // DEBUG:
   return llvm::PreservedAnalyses::none();
 }
 

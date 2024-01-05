@@ -45,8 +45,8 @@ const label_t max_label = static_cast<label_t>(1 << label_bits) -
 const size_t val1_shift = label_bits;
 const label_t label_mask = max_label;
 
-// Use 8 bits for index into source vector
-using source_index_t = uint8_t;
+// Use 16 bits for index into source vector
+using source_index_t = uint16_t;
 const size_t source_index_bits = std::numeric_limits<source_index_t>::digits;
 const size_t max_source_index = std::numeric_limits<source_index_t>::max();
 const source_index_t source_index_mask = max_source_index;

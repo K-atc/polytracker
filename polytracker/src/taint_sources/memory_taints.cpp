@@ -15,7 +15,7 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
   // Make sure we have executed taint_start() before we try to create taint sources
   if (finished_taint_start) {
     // malloc(0x0000000000000000,size=0x00000000)
-    char name[60] = {};
+    char name[42] = {};
     snprintf(name, sizeof(name), "malloc(%p,size=%#lx)", new_mem, size);
 
     auto rng = get_polytracker_tdag().create_taint_source(
@@ -24,7 +24,7 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
       fprintf(stderr, "[*] Create taint source: address=%p, label=%d:%d\n", new_mem, rng->first, rng->second);
       *ret_label = rng->first;
     } else {
-      fprintf(stderr, "[!] Failed to create taint source for malloc\n");
+      fprintf(stderr, "[!] Failed to create taint source for malloc: address=%p, size=%#lx\n", new_mem, size);
     }
   }
 

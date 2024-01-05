@@ -36,6 +36,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
 
   std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
   bool debug_mode = false;
+  bool no_instrument_mode = false;
 
   llvm::Constant *getOrCreateGlobalStringPtr(llvm::IRBuilder<> &IRB, std::string str);
   std::unordered_map<std::string, llvm::Constant *> registered_global_strings;
