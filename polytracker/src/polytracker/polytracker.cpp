@@ -8,6 +8,7 @@
 #include <atomic>
 #include <inttypes.h>
 #include <iostream>
+#include <string_view>
 
 EARLY_CONSTRUCT_EXTERN_GETTER(taintdag::PolyTracker, polytracker_tdag);
 static bool log_untainted_labels_mode = false;
@@ -66,7 +67,8 @@ __dfsw___polytracker_log_conditional_branch(uint64_t conditional,
   __polytracker_log_conditional_branch(conditional_label);
 }
 
-extern "C" void __polytracker_log_label(
+extern "C" void
+__polytracker_log_label(
   dfsan_label label, char* opcode, char *path, uint64_t line, uint64_t column, char* function) {
   if (!polytracker_is_initialized()) {
     return;
@@ -93,6 +95,75 @@ __dfsw___polytracker_log_label(uint32_t _val, char* opcode, char *path, uint64_t
     return;
   }
   __polytracker_log_label(val_label, opcode, path, line, column, function);
+}
+
+extern "C" void
+__polytracker_log_label_ptr(
+  dfsan_label label, char* opcode, char *path, uint64_t line, uint64_t column, char* function) {
+    __polytracker_log_label(label, opcode, path, line, column, function);
+}
+
+extern "C" void
+__dfsw___polytracker_log_label_ptr(void* ptr, char* opcode, char *path, uint64_t line, uint64_t column, char* function
+                                   /* Ignore taint label */) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+  // NOTE: DFSan may passes old taint label when new label has given. So we need to get label from ptr.
+  // e.g. int* ptr = malloc(sizeof(int)); ptr[0] = 1; int a = ptr[0];
+  //           ~~~                        ~~~                 ~~~
+  //           label 1                    label 2             label 1
+  __polytracker_log_label(dfsan_read_label(ptr, sizeof(uint8_t)), opcode, path, line, column, function);
+  printf("[*] __dfsw___polytracker_log_label_ptr: dfsan_read_label(ptr=%p, sizeof(uint8_t))=%d\n", ptr, dfsan_read_label(ptr, sizeof(uint8_t))); // DEBUG: 
+}
+
+extern "C" dfsan_label
+__polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path, uint64_t line, uint64_t column, char* function,
+                                 dfsan_label _addr_label, dfsan_label value_label) {
+  dfsan_label dest_label = dfsan_read_label(addr, sizeof(uint8_t));
+  if (dest_label > 0 /* dest is tainted */ && value_label == 0 /* src is not tainted */) {
+    if (std::string_view(path).starts_with("/cxx_lib")) {
+      // Do not create taint source in C++ library
+      return dest_label;
+    }
+
+    // store(*0x0000000000000000=0x0000000000000000,size=00)
+    char name[53] = {};
+    snprintf(name, sizeof(name), "store(*%p=%#lx,size=%ld)", addr, value, size);
+
+    auto rng = get_polytracker_tdag().create_taint_source(
+      name, {reinterpret_cast<uint8_t *>(addr), size});
+    if (rng) {
+      fprintf(stderr, "[*] Create taint source by store: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
+      __polytracker_log_label(rng->first, (char *) "taint_store", path, line, column, function);
+      fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dfsan_read_label(addr, sizeof(uint8_t))); // DEBUG:
+      return rng->first;
+    } else {
+      fprintf(stderr, "[!] Failed to create taint source for store: address=%p, size=%ld\n", addr, size); // DEBUG: 
+    }
+  } else if (dest_label > 0) {
+    __polytracker_log_label(dest_label, (char *) "store", path, line, column, function);
+  }
+  return dest_label;
+}
+
+extern "C" dfsan_label
+__dfsw___polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path, uint64_t line, uint64_t column, char* function,
+                                 dfsan_label addr_label, dfsan_label value_label /* rest of params are omitted */) {
+  if (!polytracker_is_initialized()) {
+    return 0;
+  }
+  return __polytracker_taint_store(addr, value, size, path, line, column, function, addr_label, value_label);
+}
+
+extern "C" void
+__polytracker_set_taint_label(uint8_t *addr, uint64_t size, dfsan_label start_label) {
+  if (start_label > 0) {
+    for (uint64_t i = 0; i < size; i++) {
+      dfsan_set_label(start_label + i, reinterpret_cast<void*>(&addr[i]), sizeof(uint8_t));
+    }
+    fprintf(stderr, "[*] __polytracker_set_taint_label: start_label=%d, addr=%p, size=%ld\n", start_label, addr, size); // DEBUG:
+  }
 }
 
 extern "C" void __taint_start() {

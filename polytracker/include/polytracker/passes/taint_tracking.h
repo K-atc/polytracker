@@ -33,6 +33,10 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   llvm::FunctionCallee cond_br_log_fn;
   // Log relations of taint labels and variables
   llvm::FunctionCallee label_log_fn;
+  llvm::FunctionCallee label_log_ptr_fn;
+  // Create taint source for store
+  llvm::FunctionCallee taint_store_fn;
+  llvm::FunctionCallee set_taint_label_fn;
 
   std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
   bool debug_mode = false;
@@ -44,6 +48,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   // Helpers
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);
   void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val);
+  void insertTaintStoreCall(llvm::StoreInst &inst);
   void insertTaintStartupCall(llvm::Module &mod);
   void declareLoggingFunctions(llvm::Module &mod);
 

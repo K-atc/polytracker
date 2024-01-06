@@ -156,23 +156,100 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
     inst.getFunction() ? 
       inst.getFunction()->getName().str() :
       "";
+  // NOTE: inst.getFunction() may returns caller function name (because of -O2 ?)
+  //       (e.g. returns `_ZN5LexerD2Ev` instead of `_ZNK6Object8isStreamEv` in poppler)
+  if (llvm::DILocalScope *scope = loc->getScope(); scope != NULL && scope->getSubprogram() != NULL) {
+    std::string new_function = scope->getSubprogram()->getLinkageName().str();
+    if (!new_function.empty() && new_function != function) {
+      llvm::errs() << "[*] Update function: from=" << function << " to=" << new_function << "\n"; // DEBUG:
+      function = new_function;
+    }
+  }
 
   llvm::Type *type = val->getType();
-  if (type != NULL && (type->isPointerTy() || type->isIntegerTy() || type->isFloatingPointTy())) {
-    ir.CreateCall(label_log_fn, {
-      type->isPointerTy() ? 
-        ir.CreatePtrToInt(val, ir.getInt64Ty()) :
-          type->isFloatingPointTy() ? 
-            ir.CreateFPToSI(val, ir.getInt64Ty()) :
-            type->isVectorTy() ?
-              ir.CreateExtractVector(ir.getInt64Ty(), val, 0) : // TODO: vectorの要素数だけ繰り返す
-              ir.CreateSExtOrTrunc(val, ir.getInt64Ty()),
+  if (type == NULL) {
+    return;
+  }
+  if (type->isPointerTy()) {
+    ir.CreateCall(label_log_ptr_fn, {
+      ir.CreateBitCast(val, ir.getInt8PtrTy()),
       getOrCreateGlobalStringPtr(ir, opcode),
       getOrCreateGlobalStringPtr(ir, path),
       ir.getInt64(loc->getLine()),
       ir.getInt64(loc->getColumn()),
       getOrCreateGlobalStringPtr(ir, function),
     });
+  } else if (type->isIntegerTy() || type->isFloatingPointTy()) {
+    ir.CreateCall(label_log_fn, {
+      type->isFloatingPointTy() ? 
+        ir.CreateFPToSI(val, ir.getInt64Ty()) :
+        ir.CreateSExtOrTrunc(val, ir.getInt64Ty()),
+      getOrCreateGlobalStringPtr(ir, opcode + "_ptr"),
+      getOrCreateGlobalStringPtr(ir, path),
+      ir.getInt64(loc->getLine()),
+      ir.getInt64(loc->getColumn()),
+      getOrCreateGlobalStringPtr(ir, function),
+    });
+  }
+}
+
+void TaintTrackingPass::insertTaintStoreCall(llvm::StoreInst &inst) {
+  llvm::Type* value_type = inst.getValueOperand()->getType();
+  if (value_type != NULL && value_type->isIntegerTy()) {
+    llvm::DILocation *loc = inst.getDebugLoc();
+    if (loc == NULL) {
+      return;
+    }
+
+    std::string path = 
+      loc->getDirectory().empty() ? 
+        loc->getFilename().str() :
+        loc->getDirectory().str() + "/" + loc->getFilename().str();
+    std::string function = 
+      inst.getFunction() ? 
+        inst.getFunction()->getName().str() :
+        "";
+    // NOTE: inst.getFunction() may returns caller function name (because of -O2 ?)
+    //       (e.g. returns `_ZN5LexerD2Ev` instead of `_ZNK6Object8isStreamEv` in poppler)
+    if (llvm::DILocalScope *scope = loc->getScope(); scope != NULL && scope->getSubprogram() != NULL) {
+      std::string new_function = scope->getSubprogram()->getLinkageName().str();
+      if (!new_function.empty() && new_function != function) {
+        llvm::errs() << "[*] Update function: from=" << function << " to=" << new_function << "\n"; // DEBUG:
+        function = new_function;
+      }
+    }
+
+    // Insert *before* store instruction
+    llvm::CallInst* call_taint_store_fn;
+    {
+      llvm::IRBuilder<> ir(&inst);
+      call_taint_store_fn = ir.CreateCall(taint_store_fn, {
+        ir.CreateBitCast(inst.getPointerOperand(), ir.getInt8PtrTy()),
+        ir.CreateSExtOrTrunc(inst.getValueOperand(), ir.getInt64Ty()),
+        ir.getInt64(value_type->getPrimitiveSizeInBits() / 8),
+        getOrCreateGlobalStringPtr(ir, path),
+        ir.getInt64(loc->getLine()),
+        ir.getInt64(loc->getColumn()),
+        getOrCreateGlobalStringPtr(ir, function),
+      });
+    }
+
+    // Insert call *after* store instruction to avoid clearing taint label
+    if (call_taint_store_fn) {
+      llvm::BasicBlock::iterator it(&inst);
+      it++;
+      llvm::Instruction* nextInst = &(*it);
+      if (nextInst == NULL) {
+        return; // Give up insertion
+      }
+      llvm::IRBuilder<> ir(nextInst);
+
+      ir.CreateCall(set_taint_label_fn, {
+        ir.CreateBitCast(inst.getPointerOperand(), ir.getInt8PtrTy()),
+        ir.getInt64(value_type->getPrimitiveSizeInBits() / 8),
+        llvm::cast<llvm::Value>(call_taint_store_fn),
+      });
+    }
   }
 }
 
@@ -186,6 +263,7 @@ void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
   if (debug_mode) {
     print(II); // DEBUG: 
   }
+  insertLabelLogCall(II, II.getPointerOperand());
   for (auto &idx : II.indices()) {
     if (llvm::isa<llvm::ConstantInt>(idx)) {
       continue;
@@ -214,9 +292,10 @@ void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
     llvm::IRBuilder<> ir(&II);
     llvm::Type *type = II.getType();
     if (type && type->isIntegerTy()) {
-      insertLabelLogCall(II, ir.CreateLoad(type, II.getPointerOperand()));
-      /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => errr: Instruction does not dominate all uses!
+      insertLabelLogCall(II, ir.CreateLoad(type, II.getPointerOperand(), "visitLoadInst"));
+      /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
     }
+
     insertLabelLogCall(II, II.getPointerOperand());
   }
 }
@@ -225,8 +304,9 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
   if (debug_mode) {
     print(II); // DEBUG: 
   }
+  // NOTE: Reordering insertion makes no effect
   insertLabelLogCall(II, II.getValueOperand());
-  insertLabelLogCall(II, II.getPointerOperand());
+  insertTaintStoreCall(II);
 }
 
 void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
@@ -276,6 +356,49 @@ void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {
           false
       )
   );
+  label_log_ptr_fn = mod.getOrInsertFunction(
+      "__polytracker_log_label_ptr", 
+      llvm::FunctionType::get(
+          ir.getVoidTy(),
+          {
+            ir.getInt8PtrTy(),
+            ir.getInt8PtrTy(),
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+          }, 
+          false
+      )
+  );
+  taint_store_fn = mod.getOrInsertFunction(
+      "__polytracker_taint_store", 
+      llvm::FunctionType::get(
+          label_ty,
+          {
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+          }, 
+          false
+      )
+  );
+  set_taint_label_fn = mod.getOrInsertFunction(
+      "__polytracker_set_taint_label", 
+      llvm::FunctionType::get(
+          ir.getVoidTy(),
+          {
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            label_ty,
+          }, 
+          false
+      )
+  );
 }
 
 llvm::PreservedAnalyses
@@ -294,7 +417,7 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
       break;
     }
 
-    llvm::errs() << "[*] TaintTrackingPass: enter: " << fn.getName() << "\n"; // DEBUG:
+    // llvm::errs() << "[*] TaintTrackingPass: enter: " << fn.getName() << "\n"; // DEBUG:
 
     if (ignore.count(fn.getName().str())) {
       continue;
@@ -312,7 +435,7 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
     //   continue;
     // }
     if (!fn.getMetadata("dbg") && fn.getName() != "main") {
-      llvm::errs() << "[*] TaintTrackingPass: no !dbg " << fn.getName() << "\n"; // DEBUG:
+      // llvm::errs() << "[*] TaintTrackingPass: no !dbg " << fn.getName() << "\n"; // DEBUG:
       continue;
     }
     if (fn.getName().startswith("_ZN12_GLOBAL__N_")) {
@@ -322,19 +445,18 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
       continue;
     }
 
-    llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
+    // llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
+    
     visit(fn);
     // If this is the main function, insert a taint-argv call
     if (fn.getName() == "main") {
       emitTaintArgvCall(fn);
     }
+
     value2Metadata.clear();
   }
   
   registered_global_strings.clear();
-  if (no_instrument_mode) {
-    llvm::errs() << "[*] TaintTrackingPass: Visited all functions\n"; // DEBUG:
-  }
 
   insertTaintStartupCall(mod);
   
