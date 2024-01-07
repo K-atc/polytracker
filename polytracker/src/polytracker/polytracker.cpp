@@ -113,8 +113,13 @@ __dfsw___polytracker_log_label_ptr(void* ptr, char* opcode, char *path, uint64_t
   // e.g. int* ptr = malloc(sizeof(int)); ptr[0] = 1; int a = ptr[0];
   //           ~~~                        ~~~                 ~~~
   //           label 1                    label 2             label 1
+  fprintf(stderr, "[*] __dfsw___polytracker_log_label_ptr: dfsan_read_label(ptr=%p, sizeof(uint8_t))", ptr); // DEBUG: 
+  if (!ptr) {
+    fprintf(stderr, "=(Failed)\n"); // DEBUG: 
+    return;
+  }
   __polytracker_log_label(dfsan_read_label(ptr, sizeof(uint8_t)), opcode, path, line, column, function);
-  printf("[*] __dfsw___polytracker_log_label_ptr: dfsan_read_label(ptr=%p, sizeof(uint8_t))=%d\n", ptr, dfsan_read_label(ptr, sizeof(uint8_t))); // DEBUG: 
+  fprintf(stderr, "=%d\n", dfsan_read_label(ptr, sizeof(uint8_t))); // DEBUG: 
 }
 
 extern "C" dfsan_label

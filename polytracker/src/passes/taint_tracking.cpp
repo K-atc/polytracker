@@ -173,7 +173,7 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
   if (type->isPointerTy()) {
     ir.CreateCall(label_log_ptr_fn, {
       ir.CreateBitCast(val, ir.getInt8PtrTy()),
-      getOrCreateGlobalStringPtr(ir, opcode),
+      getOrCreateGlobalStringPtr(ir, opcode + "_ptr"),
       getOrCreateGlobalStringPtr(ir, path),
       ir.getInt64(loc->getLine()),
       ir.getInt64(loc->getColumn()),
@@ -184,7 +184,7 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
       type->isFloatingPointTy() ? 
         ir.CreateFPToSI(val, ir.getInt64Ty()) :
         ir.CreateSExtOrTrunc(val, ir.getInt64Ty()),
-      getOrCreateGlobalStringPtr(ir, opcode + "_ptr"),
+      getOrCreateGlobalStringPtr(ir, opcode),
       getOrCreateGlobalStringPtr(ir, path),
       ir.getInt64(loc->getLine()),
       ir.getInt64(loc->getColumn()),
@@ -289,14 +289,16 @@ void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
     print(II); // DEBUG: 
   }
   if (II.getPointerOperand() != NULL) { // NULL check
+    // Step 1.
+    insertLabelLogCall(II, II.getPointerOperand());
+
+    // Step 2.
     llvm::IRBuilder<> ir(&II);
     llvm::Type *type = II.getType();
     if (type && type->isIntegerTy()) {
       insertLabelLogCall(II, ir.CreateLoad(type, II.getPointerOperand(), "visitLoadInst"));
       /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
     }
-
-    insertLabelLogCall(II, II.getPointerOperand());
   }
 }
 
