@@ -14,6 +14,8 @@
 #include "taintdag/taint.h"
 #include "taintdag/union.h"
 #include "taintdag/util.h"
+#include <cassert>
+
 
 namespace taintdag {
 
@@ -56,6 +58,13 @@ struct Labels : public FixedSizeAlloc<storage_t> {
     // TODO (hbrodin): Might already be covered by DFSAN
     if (l == r)
       return l;
+    if (l == 0 && r > 0)
+      return r;
+    if (l > 0 && r == 0)
+      return l;
+    if (l == 0 && r == 0)
+      return 0;
+    assert(l > 0 && r > 0);
 
     auto lval = read_label(l);
     auto rval = read_label(r);
@@ -66,6 +75,10 @@ struct Labels : public FixedSizeAlloc<storage_t> {
     // At this point we should add a new taint, before doing so,
     // scan backwards to see if an identical taint was recently added
     auto encoded = encode(std::get<Taint>(result));
+    if (encoded == 0) {
+      error_exit("Encode result is 0");
+      return 0;
+    }
 
     auto hilbl = std::max(l, r);
     auto dup = duplicate_check(hilbl, encoded);
@@ -118,6 +131,11 @@ struct Labels : public FixedSizeAlloc<storage_t> {
   void affects_control_flow(label_t label) {
     using labelq = utils::LabelDeq<32>;
 
+    if (label == 0) {
+      // Do nothing; No taints affects control flow
+      return;
+    }
+
     // Do a check on label to see if it shoudld be added to the q.
     // - If it affects control flow, ignore it. Already processed.
     // - If it is source taint, just mark it as affecting cf.
@@ -169,7 +187,15 @@ struct Labels : public FixedSizeAlloc<storage_t> {
 
     while (!q.empty()) {
       auto l = q.pop_front();
+      if (l == 0) {
+        // Do nothing
+        continue;
+      }
       auto encoded = begin()[l];
+      if (encoded == 0) {
+        // Do nothing (is correct?)
+        continue;
+      }
 
       set_affects_control_flow(l);
       std::visit(visitor, decode(encoded));

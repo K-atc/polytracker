@@ -8,6 +8,7 @@
 
 #include "taintdag/encoding.h"
 #include "taintdag/error.h"
+#include <cassert>
 
 namespace taintdag {
 
@@ -56,6 +57,8 @@ storage_t encode(Taint const &taint) {
 }
 
 Taint decode(storage_t encoded) {
+  assert(encoded > 0);
+
   bool affects_control_flow = (encoded >> affects_control_flow_shift) & 1;
   if ((encoded >> source_taint_bit_shift) & 1) {
     auto idx = encoded & source_index_mask;

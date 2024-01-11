@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <sstream>
+#include <iostream>
 
 namespace taintdag {
 
@@ -20,7 +21,7 @@ extern std::function<void(int)> error_function;
 template <typename... Msgs> void error_exit(Msgs &&...msgs) {
   std::stringstream ss;
   (ss << ... << msgs);
-  spdlog::error(ss.str());
+  std::cerr << "[error🥺] " << ss.str() << std::endl;
   error_function(-1);
 }
 } // namespace taintdag

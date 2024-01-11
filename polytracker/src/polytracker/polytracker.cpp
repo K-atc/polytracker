@@ -122,9 +122,11 @@ __dfsw___polytracker_log_label_ptr(void* ptr, char* opcode, char *path, uint64_t
     }
     return;
   }
-  __polytracker_log_label(dfsan_read_label(ptr, sizeof(uint8_t)), opcode, path, line, column, function);
+
+  dfsan_label label = dfsan_read_label(ptr, sizeof(uint8_t));
+  __polytracker_log_label(label, opcode, path, line, column, function);
   if (log_untainted_labels_mode) {
-    fprintf(stderr, "=%d\n", dfsan_read_label(ptr, sizeof(uint8_t))); // DEBUG: 
+    fprintf(stderr, "=%d\n", label); // DEBUG: 
   }
 }
 
@@ -147,15 +149,16 @@ __polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path,
     if (rng) {
       fprintf(stderr, "[*] Create taint source by store: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
       __polytracker_log_label(rng->first, (char *) "taint_store", path, line, column, function);
-      fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dfsan_read_label(addr, sizeof(uint8_t))); // DEBUG:
+      if (log_untainted_labels_mode) {
+        fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dfsan_read_label(addr, sizeof(uint8_t))); // DEBUG:
+      }
       return rng->first;
     } else {
       fprintf(stderr, "[!] Failed to create taint source for store: address=%p, size=%ld\n", addr, size); // DEBUG: 
     }
-  } else if (dest_label > 0) {
-    __polytracker_log_label(dest_label, (char *) "store", path, line, column, function);
   }
-  return dest_label;
+  __polytracker_log_label(dest_label, (char *) "store", path, line, column, function);
+  return 0; // not to call dfsan_set_label()
 }
 
 extern "C" dfsan_label
@@ -169,7 +172,11 @@ __dfsw___polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char
 
 extern "C" void
 __polytracker_set_taint_label(uint8_t *addr, uint64_t size, dfsan_label start_label) {
-  if (start_label > 0) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+
+  if (addr && start_label > 0) {
     for (uint64_t i = 0; i < size; i++) {
       dfsan_set_label(start_label + i, reinterpret_cast<void*>(&addr[i]), sizeof(uint8_t));
     }
