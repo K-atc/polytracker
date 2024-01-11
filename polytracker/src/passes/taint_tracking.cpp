@@ -119,12 +119,11 @@ std::string symbolize(const llvm::Value *val) {
 }
 
 void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
-                                            llvm::Value *val) {
+                                            llvm::Value *val, bool insert_after) {
   if (val == NULL) {
     return;
   }
 
-  llvm::IRBuilder<> ir(&inst);
   auto dbg = value2Metadata.find(val);
   // if (dbg != value2Metadata.end()) {
     // auto loc = dbg->second;
@@ -165,6 +164,25 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
       function = new_function;
     }
   }
+
+  if (path.starts_with("/cxx_lib")) {
+    // Do not track dataflow in c++ library
+    return;
+  }
+
+  llvm::Instruction* insertion_point;
+  if (insert_after) {
+    llvm::BasicBlock::iterator it(&inst);
+    it++;
+    llvm::Instruction* nextInst = &(*it);
+    if (nextInst == NULL) {
+      return; // Give up insertion
+    }
+    insertion_point = nextInst;
+  } else {
+    insertion_point = &inst;
+  }
+  llvm::IRBuilder<> ir(insertion_point);
 
   llvm::Type *type = val->getType();
   if (type == NULL) {
@@ -217,6 +235,11 @@ void TaintTrackingPass::insertTaintStoreCall(llvm::StoreInst &inst) {
         llvm::errs() << "[*] Update function: from=" << function << " to=" << new_function << "\n"; // DEBUG:
         function = new_function;
       }
+    }
+
+    if (path.starts_with("/cxx_lib")) {
+      // Do not track dataflow in c++ library
+      return;
     }
 
     // Insert *before* store instruction
@@ -309,6 +332,21 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
   // NOTE: Reordering insertion makes no effect
   insertLabelLogCall(II, II.getValueOperand());
   insertTaintStoreCall(II);
+}
+
+void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
+  // if (llvm::Value *op = II.getOperand(0); op != NULL) {
+  //   llvm::Type *type = op->getType();
+  //   if (type && type->isPointerTy()) {
+  //     insertLabelLogCall(II, op);
+  //   }
+  // }
+  {
+    llvm::Type *type = II.getType();
+    if (type && type->isPointerTy()) {
+      insertLabelLogCall(II, &cast<llvm::Value>(II), true);
+    }
+  }
 }
 
 void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
