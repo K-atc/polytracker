@@ -341,6 +341,7 @@ void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
   //     insertLabelLogCall(II, op);
   //   }
   // }
+
   {
     llvm::Type *type = II.getType();
     if (type && type->isPointerTy()) {
@@ -365,14 +366,21 @@ void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
   }
 }
 
-void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &ii) {
-  if (ii.getIntrinsicID() == llvm::Intrinsic::lifetime_end) {
+void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &II) {
+  if (II.getIntrinsicID() == llvm::Intrinsic::lifetime_end) {
     if (debug_mode) {
     // llvm::errs() << "[*] visitIntrinsicInst: "; // DEBUG: 
-    // print(ii); // DEBUG: 
+    // print(II); // DEBUG: 
     }
 
     // insertLabelLogCall(ii, ii.getOperand(1));
+  } else if (II.getIntrinsicID() == llvm::Intrinsic::dbg_value) {
+    if (llvm::Value *op = II.getOperand(0); op != NULL) {
+      llvm::Type *type = op->getType();
+      if (type && type->isPointerTy()) {
+        insertLabelLogCall(II, op);
+      }
+    }
   }
 }
 

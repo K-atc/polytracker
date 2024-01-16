@@ -1,7 +1,7 @@
 # Build base image
-FROM ubuntu:22.04 as base
+FROM ubuntu:jammy as base
+# FROM llvm-13:latest as base # Debug build version
 ARG BUILD_TYPE="Release"
-ARG LLVM_VERSION="13"
 
 LABEL org.opencontainers.image.authors="evan.sultanik@trailofbits.com"
 
@@ -22,22 +22,21 @@ RUN apt-get -y install \
   python3-pip                               \
   python3.8-dev                             \
   golang                                    \
-  clang-${LLVM_VERSION}                     \
   cmake                                     \
   git                                       \
   file
+RUN apt install -y clang-13
 
 # Install python dependencies via pip
 RUN pip3 install pytest blight
 
 # Install symlinks to clang and llvm bitcode tools
-RUN update-alternatives --install /usr/bin/opt opt /usr/bin/opt-${LLVM_VERSION} 10 && \
-    update-alternatives --install /usr/bin/llvm-link llvm-link /usr/bin/llvm-link-${LLVM_VERSION} 10 && \
-    update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-${LLVM_VERSION} 10 && \
-    update-alternatives --install /usr/bin/llvm-dis llvm-dis /usr/bin/llvm-dis-${LLVM_VERSION} 10 && \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${LLVM_VERSION} 10 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${LLVM_VERSION} 10 && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+RUN update-alternatives --install /usr/local/bin/opt opt /usr/bin/opt-13 10 && \
+    update-alternatives --install /usr/local/bin/llvm-link llvm-link /usr/bin/llvm-link-13 10 && \
+    update-alternatives --install /usr/local/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-13 10 && \
+    update-alternatives --install /usr/local/bin/llvm-dis llvm-dis /usr/bin/llvm-dis-13 10 && \
+    update-alternatives --install /usr/local/bin/clang clang /usr/bin/clang-13 10 && \
+    update-alternatives --install /usr/local/bin/clang++ clang++ /usr/bin/clang++-13 10
 
 # Install gllvm for builds with bitcode references embedded in binary build targets
 RUN GO111MODULE=off go get github.com/SRI-CSL/gllvm/cmd/...
@@ -114,6 +113,7 @@ ARG DFSAN_FILENAME_ARCH=x86_64
 WORKDIR /workdir
 COPY . /polytracker
 
+RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN pip3 install /polytracker
 
 RUN cmake -GNinja \
@@ -142,3 +142,5 @@ ENV PATH=$PATH:/polytracker-install/bin
 
 ### Install utilities
 RUN apt install -y gdb ltrace strace curl
+### Install build dependency
+RUN apt install -y libtinfo-dev

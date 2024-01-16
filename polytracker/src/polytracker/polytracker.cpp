@@ -152,6 +152,11 @@ __polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path,
       if (log_untainted_labels_mode) {
         fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dfsan_read_label(addr, sizeof(uint8_t))); // DEBUG:
       }
+      fprintf(
+        polytracker_label_log_file, 
+        "- { kind: update, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
+        dest_label, rng->first, path, line, column, function
+      );
       return rng->first;
     } else {
       fprintf(stderr, "[!] Failed to create taint source for store: address=%p, size=%ld\n", addr, size); // DEBUG: 

@@ -62,7 +62,7 @@ public:
   void visitStoreInst(llvm::StoreInst &II);
   void visitCallInst(llvm::CallInst &II);
   void visitDbgDeclareInst(llvm::DbgDeclareInst &II);
-  void visitIntrinsicInst(llvm::IntrinsicInst &ii);
+  void visitIntrinsicInst(llvm::IntrinsicInst &II);
 };
 
 } // namespace polytracker
