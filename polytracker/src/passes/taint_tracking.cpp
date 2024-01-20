@@ -335,12 +335,12 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
 }
 
 void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
-  // if (llvm::Value *op = II.getOperand(0); op != NULL) {
-  //   llvm::Type *type = op->getType();
-  //   if (type && type->isPointerTy()) {
-  //     insertLabelLogCall(II, op);
-  //   }
-  // }
+  if (llvm::Value *op = II.getOperand(0); op != NULL) {
+    llvm::Type *type = op->getType();
+    if (type && type->isPointerTy()) {
+      insertLabelLogCall(II, op);
+    }
+  }
 
   {
     llvm::Type *type = II.getType();

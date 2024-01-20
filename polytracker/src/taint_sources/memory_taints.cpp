@@ -1,11 +1,18 @@
 #include "polytracker/taint_sources.h"
 #include "polytracker/early_construct.h"
 #include "taintdag/polytracker.h"
+#include "taintdag/taint.h"
 #include <vector>
 #include <iostream>
+#include <unordered_map>
 
 EARLY_CONSTRUCT_EXTERN_GETTER(taintdag::PolyTracker, polytracker_tdag);
 extern bool finished_taint_start;
+typedef struct {
+  void *address;
+  size_t size;
+} malloc_entry;
+malloc_entry malloc_map[taintdag::max_source_index];
 
 EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
                                dfsan_label *ret_label) {
@@ -23,6 +30,13 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
     if (rng) {
       fprintf(stderr, "[*] Create taint source by malloc: address=%p, size=%#lx, label=%d:%d\n", new_mem, size, rng->first, rng->second); // DEBUG: 
       *ret_label = rng->first;
+      for (size_t i = 0; i < sizeof(malloc_map); i++) {
+        if (malloc_map[i].address == nullptr) {
+          malloc_map[i].address = new_mem;
+          malloc_map[i].size = size;
+          break;
+        }
+      }
     } else {
       fprintf(stderr, "[!] Failed to create taint source for malloc: address=%p, size=%#lx\n", new_mem, size); // DEBUG: 
     }
@@ -68,4 +82,23 @@ EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
 EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) { 
   // NOTE: Omit free() to avoid reuse heap memory
   // free(mem); 
+  fprintf(stderr, "[*] free: mem=%p", mem); // DEBUG: 
+  if (mem) {
+    for (size_t i = 0; i < sizeof(malloc_map); i++) {
+      if (malloc_map[i].address == mem) {
+        fprintf(stderr, ", size=%#lx\n", malloc_map[i].size); // DEBUG: 
+        malloc_map[i].address = nullptr;
+
+        for (int i = 0; i < malloc_map[i].size; i++) {
+          dfsan_set_label(
+            0, 
+            reinterpret_cast<void *>(&reinterpret_cast<uint8_t *>(mem)[i]),
+            sizeof(uint8_t)
+          );
+        }
+        return;
+      }
+    }
+  }
+  fprintf(stderr, "\n"); // DEBUG:
 }

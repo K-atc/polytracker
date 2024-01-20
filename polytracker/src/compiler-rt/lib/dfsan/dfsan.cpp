@@ -727,8 +727,15 @@ extern "C" SANITIZER_INTERFACE_ATTRIBUTE dfsan_origin __dfso_dfsan_get_origin(
 
 SANITIZER_INTERFACE_ATTRIBUTE dfsan_label
 dfsan_read_label(const void *addr, uptr size) {
+  if (addr == nullptr) {
+    return 0;
+  }
   if (size == 0)
     return 0;
+  if (!has_valid_shadow_addr(addr)) {
+    // Return 0 to avoid SIGSEGV
+    return 0;
+  }
   return __dfsan_union_load(shadow_for(addr), size);
 }
 
