@@ -11,6 +11,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
+#include <llvm/Demangle/Demangle.h>
 
 #include <spdlog/spdlog.h>
 
@@ -119,7 +120,7 @@ std::string symbolize(const llvm::Value *val) {
 }
 
 void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
-                                            llvm::Value *val, bool insert_after) {
+                                            llvm::Value *val, std::string opcode, bool insert_after) {
   if (val == NULL) {
     return;
   }
@@ -143,10 +144,6 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
     }
   }
 
-  std::string opcode = 
-    inst.getOpcodeName() ? 
-    inst.getOpcodeName() :
-    "";
   std::string path = 
     loc->getDirectory().empty() ? 
       loc->getFilename().str() :
@@ -286,13 +283,13 @@ void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
   if (debug_mode) {
     print(II); // DEBUG: 
   }
-  insertLabelLogCall(II, II.getPointerOperand());
+  insertLabelLogCall(II, II.getPointerOperand(), II.getOpcodeName());
   for (auto &idx : II.indices()) {
     if (llvm::isa<llvm::ConstantInt>(idx)) {
       continue;
     }
     insertCondBrLogCall(II, idx);
-    insertLabelLogCall(II, idx);
+    insertLabelLogCall(II, idx, II.getOpcodeName());
   }
 }
 
@@ -313,13 +310,13 @@ void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
   }
   if (II.getPointerOperand() != NULL) { // NULL check
     // Step 1.
-    insertLabelLogCall(II, II.getPointerOperand());
+    insertLabelLogCall(II, II.getPointerOperand(), II.getOpcodeName());
 
     // Step 2.
     llvm::IRBuilder<> ir(&II);
     llvm::Type *type = II.getType();
     if (type && type->isIntegerTy()) {
-      insertLabelLogCall(II, ir.CreateLoad(type, II.getPointerOperand(), "visitLoadInst"));
+      insertLabelLogCall(II, ir.CreateLoad(type, II.getPointerOperand(), "visitLoadInst"), II.getOpcodeName());
       /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
     }
   }
@@ -330,22 +327,41 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
     print(II); // DEBUG: 
   }
   // NOTE: Reordering insertion makes no effect
-  insertLabelLogCall(II, II.getValueOperand());
+  insertLabelLogCall(II, II.getValueOperand(), II.getOpcodeName());
   insertTaintStoreCall(II);
 }
 
+bool isCtorOrDtor(llvm::Function *F) {
+  if (!F) {
+    return false;
+  }
+  llvm::ItaniumPartialDemangler Demangler;
+  Demangler.partialDemangle(F->getName().str().c_str());
+  return Demangler.isCtorOrDtor();
+}
+
 void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
-  if (llvm::Value *op = II.getOperand(0); op != NULL) {
+  for (auto &op : II.operands()) {
     llvm::Type *type = op->getType();
     if (type && type->isPointerTy()) {
-      insertLabelLogCall(II, op);
+      insertLabelLogCall(II, op, "call_param");
+    }
+  }
+
+  // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
+  if (isCtorOrDtor(II.getCalledFunction())){
+    if (llvm::Value *dest = II.getOperand(0); dest) {
+      llvm::Type *type = dest->getType();
+      if (type && type->isPointerTy()) {
+        insertLabelLogCall(II, dest, "call_ctor");
+      }
     }
   }
 
   {
     llvm::Type *type = II.getType();
     if (type && type->isPointerTy()) {
-      insertLabelLogCall(II, &cast<llvm::Value>(II), true);
+      insertLabelLogCall(II, &cast<llvm::Value>(II), II.getOpcodeName(), true);
     }
   }
 }
@@ -378,7 +394,7 @@ void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     if (llvm::Value *op = II.getOperand(0); op != NULL) {
       llvm::Type *type = op->getType();
       if (type && type->isPointerTy()) {
-        insertLabelLogCall(II, op);
+        insertLabelLogCall(II, op, II.getOpcodeName());
       }
     }
   }

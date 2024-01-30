@@ -47,7 +47,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   
   // Helpers
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);
-  void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val, bool insert_after = false);
+  void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val, std::string opcode, bool insert_after = false);
   void insertTaintStoreCall(llvm::StoreInst &inst);
   void insertTaintStartupCall(llvm::Module &mod);
   void declareLoggingFunctions(llvm::Module &mod);
