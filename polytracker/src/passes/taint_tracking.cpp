@@ -9,6 +9,7 @@
 #include "polytracker/passes/taint_tracking.h"
 
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/Demangle/Demangle.h>
@@ -19,6 +20,7 @@
 #include "polytracker/passes/utils.h"
 
 #include <regex>
+#include <optional>
 
 static llvm::cl::list<std::string> ignore_lists(
     "pt-taint-ignore-list",
@@ -119,6 +121,33 @@ std::string symbolize(const llvm::Value *val) {
   return str;
 }
 
+std::string getPath(llvm::DILocation *loc) {
+  return loc->getDirectory().empty() ? 
+    loc->getFilename().str() :
+    loc->getDirectory().str() + "/" + loc->getFilename().str();
+}
+
+std::string getFunction(llvm::Instruction &inst) {
+  return inst.getFunction() ? 
+      inst.getFunction()->getName().str() :
+      "";
+}
+
+std::string getFunction(llvm::Instruction &inst, llvm::DILocation *loc) {
+  std::string function = getFunction(inst);
+
+  // NOTE: inst.getFunction() may returns caller function name (because of -O2 ?)
+  //       (e.g. returns `_ZN5LexerD2Ev` instead of `_ZNK6Object8isStreamEv` in poppler)
+  if (llvm::DILocalScope *scope = loc->getScope(); scope != NULL && scope->getSubprogram() != NULL) {
+    std::string new_function = scope->getSubprogram()->getLinkageName().str();
+    if (!new_function.empty() && new_function != function) {
+      llvm::errs() << "[*] Update function: from=" << function << " to=" << new_function << "\n"; // DEBUG:
+      function = new_function;
+    }
+  }
+  return function;
+}
+
 void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
                                             llvm::Value *val, std::string opcode, bool insert_after) {
   if (val == NULL) {
@@ -144,23 +173,8 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
     }
   }
 
-  std::string path = 
-    loc->getDirectory().empty() ? 
-      loc->getFilename().str() :
-      loc->getDirectory().str() + "/" + loc->getFilename().str();
-  std::string function = 
-    inst.getFunction() ? 
-      inst.getFunction()->getName().str() :
-      "";
-  // NOTE: inst.getFunction() may returns caller function name (because of -O2 ?)
-  //       (e.g. returns `_ZN5LexerD2Ev` instead of `_ZNK6Object8isStreamEv` in poppler)
-  if (llvm::DILocalScope *scope = loc->getScope(); scope != NULL && scope->getSubprogram() != NULL) {
-    std::string new_function = scope->getSubprogram()->getLinkageName().str();
-    if (!new_function.empty() && new_function != function) {
-      llvm::errs() << "[*] Update function: from=" << function << " to=" << new_function << "\n"; // DEBUG:
-      function = new_function;
-    }
-  }
+  std::string path = getPath(loc);
+  std::string function = getFunction(inst, loc);
 
   if (path.starts_with("/cxx_lib")) {
     // Do not track dataflow in c++ library
@@ -215,25 +229,8 @@ void TaintTrackingPass::insertTaintStoreCall(llvm::StoreInst &inst) {
     if (loc == NULL) {
       return;
     }
-
-    std::string path = 
-      loc->getDirectory().empty() ? 
-        loc->getFilename().str() :
-        loc->getDirectory().str() + "/" + loc->getFilename().str();
-    std::string function = 
-      inst.getFunction() ? 
-        inst.getFunction()->getName().str() :
-        "";
-    // NOTE: inst.getFunction() may returns caller function name (because of -O2 ?)
-    //       (e.g. returns `_ZN5LexerD2Ev` instead of `_ZNK6Object8isStreamEv` in poppler)
-    if (llvm::DILocalScope *scope = loc->getScope(); scope != NULL && scope->getSubprogram() != NULL) {
-      std::string new_function = scope->getSubprogram()->getLinkageName().str();
-      if (!new_function.empty() && new_function != function) {
-        llvm::errs() << "[*] Update function: from=" << function << " to=" << new_function << "\n"; // DEBUG:
-        function = new_function;
-      }
-    }
-
+    std::string path = getPath(loc);
+    std::string function = getFunction(inst, loc);
     if (path.starts_with("/cxx_lib")) {
       // Do not track dataflow in c++ library
       return;
@@ -273,10 +270,92 @@ void TaintTrackingPass::insertTaintStoreCall(llvm::StoreInst &inst) {
   }
 }
 
+std::optional<llvm::TypeSize>
+getAllocationSize(llvm::AllocaInst &II) {
+  const llvm::DataLayout &DL = II.getModule()->getDataLayout();
+  return DL.getTypeAllocSize(II.getAllocatedType());
+}
+
+std::optional<llvm::TypeSize>
+getAllocationSize(llvm::CallInst &II) {
+  const llvm::DataLayout &DL = II.getModule()->getDataLayout();
+
+  if (llvm::Value *arg = II.getArgOperand(0); arg) {
+    // Get pointee type
+    if (llvm::PointerType *PT = llvm::cast<llvm::PointerType>(arg->getType())) {
+      llvm::Type *type = PT->getPointerElementType();
+      return DL.getTypeAllocSize(type);
+    }
+  }
+  return {};
+}
+
+void TaintTrackingPass::insertTaintAllocaCall(llvm::AllocaInst &inst) {
+  llvm::BasicBlock::iterator it(&inst);
+  it++;
+  llvm::Instruction* nextInst = &(*it);
+  if (nextInst == NULL) {
+    return; // Give up insertion
+  }
+  llvm::IRBuilder<> ir(nextInst);
+
+  std::string function = getFunction(inst);
+  std::optional<llvm::TypeSize> size = getAllocationSize(inst);
+  if (size && *size > 1) {
+    ir.CreateCall(taint_alloca_fn, {
+      ir.CreateBitCast(&llvm::cast<llvm::Value>(inst), ir.getInt8PtrTy()),
+      ir.getInt64(*size),
+      getOrCreateGlobalStringPtr(ir, function),
+    });
+  }
+}
+
+void TaintTrackingPass::insertTaintConstructorCall(llvm::CallInst &inst) {
+  llvm::Value* instance = inst.getArgOperand(0);
+  if (!instance) {
+    return;
+  }
+
+  llvm::DILocation *loc = inst.getDebugLoc();
+  if (loc == NULL) {
+    return;
+  }
+
+  llvm::IRBuilder<> ir(&inst);
+  std::string path = getPath(loc);
+  if (path.starts_with("/cxx_lib")) {
+    // Do not track dataflow in c++ library
+    return;
+  }
+  std::string function = getFunction(inst, loc);
+  std::optional<llvm::TypeSize> size = getAllocationSize(inst);
+  if (size && *size > 1) {
+    ir.CreateCall(taint_ctor_fn, {
+      ir.CreateBitCast(instance, ir.getInt8PtrTy()),
+      ir.getInt64(*size),
+      getOrCreateGlobalStringPtr(ir, path),
+      ir.getInt64(loc->getLine()),
+      ir.getInt64(loc->getColumn()),
+      getOrCreateGlobalStringPtr(ir, function),
+    });
+  }
+}
+
 void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
   assert(taint_start_fn.getCallee());
   auto func{llvm::cast<llvm::Function>(taint_start_fn.getCallee())};
   llvm::appendToGlobalCtors(mod, func, 0);
+}
+
+bool isPointerTy(llvm::Value *value) {
+  if (value == NULL) {
+    return false;
+  }
+  llvm::Type *type = value->getType();
+  if (type == NULL) {
+    return false;
+  }
+  return type->isPointerTy();
 }
 
 void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
@@ -331,6 +410,15 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
   insertTaintStoreCall(II);
 }
 
+void TaintTrackingPass::visitAllocaInst(llvm::AllocaInst &II) {
+  // TODO: Omit instrumentations in C/C++ libs
+  if (II.getAllocatedType()->isStructTy()) {
+    llvm::errs() << "[*] visitAllocaInst: struct type: "; // DEBUG:
+    print(II); // DEBUG:
+    insertTaintAllocaCall(II);
+  }
+}
+
 bool isCtorOrDtor(llvm::Function *F) {
   if (!F) {
     return false;
@@ -349,20 +437,23 @@ void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
   }
 
   // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
-  if (isCtorOrDtor(II.getCalledFunction())){
-    if (llvm::Value *dest = II.getOperand(0); dest) {
-      llvm::Type *type = dest->getType();
-      if (type && type->isPointerTy()) {
-        insertLabelLogCall(II, dest, "call_ctor");
-      }
-    }
-  }
+  // if (isCtorOrDtor(II.getCalledFunction())){
+  //   if (llvm::Value *dest = II.getOperand(0); isPointerTy(dest)) {
+  //     insertTaintConstructorCall(II);
+  //   }
+  // }
 
   {
     llvm::Type *type = II.getType();
     if (type && type->isPointerTy()) {
       insertLabelLogCall(II, &cast<llvm::Value>(II), II.getOpcodeName(), true);
     }
+  }
+}
+
+void TaintTrackingPass::visitReturnInst(llvm::ReturnInst &II) {
+  if (isPointerTy(II.getReturnValue())) {
+    insertLabelLogCall(II, II.getReturnValue(), II.getOpcodeName());
   }
 }
 
@@ -391,11 +482,8 @@ void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &II) {
 
     // insertLabelLogCall(ii, ii.getOperand(1));
   } else if (II.getIntrinsicID() == llvm::Intrinsic::dbg_value) {
-    if (llvm::Value *op = II.getOperand(0); op != NULL) {
-      llvm::Type *type = op->getType();
-      if (type && type->isPointerTy()) {
-        insertLabelLogCall(II, op, II.getOpcodeName());
-      }
+    if (llvm::Value *op = II.getOperand(0); isPointerTy(op)) {
+      insertLabelLogCall(II, op, II.getOpcodeName());
     }
   }
 }
@@ -442,6 +530,33 @@ void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {
           {
             ir.getInt8PtrTy(),
             ir.getInt64Ty(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+          }, 
+          false
+      )
+  );
+  taint_alloca_fn = mod.getOrInsertFunction(
+      "__polytracker_taint_alloca", 
+      llvm::FunctionType::get(
+          label_ty,
+          {
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+          }, 
+          false
+      )
+  );
+  taint_ctor_fn = mod.getOrInsertFunction(
+      "__polytracker_taint_ctor", 
+      llvm::FunctionType::get(
+          label_ty,
+          {
+            ir.getInt8PtrTy(),
             ir.getInt64Ty(),
             ir.getInt8PtrTy(),
             ir.getInt64Ty(),

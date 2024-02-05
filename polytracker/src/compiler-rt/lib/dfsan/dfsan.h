@@ -91,7 +91,10 @@ inline const dfsan_origin *origin_for(const void *ptr) {
 }
 
 inline bool is_shadow_addr_valid(uptr shadow_addr) {
-  return (uptr)shadow_addr >= ShadowAddr() && (uptr)shadow_addr < OriginAddr();
+  // この判定本当に正しい？ ptr がスタックアドレスのとき、OriginAddr() より大きい
+  // return (uptr)shadow_addr >= ShadowAddr() && (uptr)shadow_addr < OriginAddr();
+  
+  return (uptr)shadow_addr >= ShadowAddr() && (uptr)shadow_addr < UnionTableAddr();
 }
 
 inline bool has_valid_shadow_addr(const void *ptr) {

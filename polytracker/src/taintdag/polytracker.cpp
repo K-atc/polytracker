@@ -63,7 +63,7 @@ taint_range_t PolyTracker::create_source_taint(source_index_t src,
   // not be modified, but a corresponding shadow memory region will be.
   auto lbl = rng.first;
   for (auto i = 0; i < dst.size(); i++) {
-    dfsan_set_label(lbl++, const_cast<uint8_t *>(&dst[i]), sizeof(char));
+    dfsan_set_label(lbl++, const_cast<uint8_t *>(&dst[i]), sizeof(uint8_t));
   }
   return rng;
 }

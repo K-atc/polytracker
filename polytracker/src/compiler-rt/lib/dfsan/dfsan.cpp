@@ -733,7 +733,8 @@ dfsan_read_label(const void *addr, uptr size) {
   if (size == 0)
     return 0;
   if (!has_valid_shadow_addr(addr)) {
-    // Return 0 to avoid SIGSEGV
+    // Early return to avoid SIGSEGV
+    fprintf(stderr, "[*] dfsan_read_label: addr is not valid\n"); // DEBUG: Remove me
     return 0;
   }
   return __dfsan_union_load(shadow_for(addr), size);

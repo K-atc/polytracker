@@ -82,8 +82,11 @@ EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
 EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) { 
   // NOTE: Omit free() to avoid reuse heap memory
   // free(mem); 
+
   fprintf(stderr, "[*] free: mem=%p", mem); // DEBUG: 
   if (mem) {
+    dfsan_set_label(0, mem, sizeof(uint8_t));
+
     for (size_t i = 0; i < sizeof(malloc_map); i++) {
       if (malloc_map[i].address == mem) {
         fprintf(stderr, ", size=%#lx\n", malloc_map[i].size); // DEBUG: 
@@ -96,9 +99,11 @@ EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) {
             sizeof(uint8_t)
           );
         }
+        fprintf(stderr, "\n"); // DEBUG:
         return;
       }
     }
+    fprintf(stderr, "(unknown)\n"); // DEBUG:
   }
   fprintf(stderr, "\n"); // DEBUG:
 }

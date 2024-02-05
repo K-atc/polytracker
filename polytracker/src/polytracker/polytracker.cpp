@@ -134,6 +134,9 @@ extern "C" dfsan_label
 __polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path, uint64_t line, uint64_t column, char* function,
                                  dfsan_label _addr_label, dfsan_label value_label) {
   dfsan_label dest_label = dfsan_read_label(addr, sizeof(uint8_t));
+  if (log_untainted_labels_mode) {
+    fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dest_label); // DEBUG: 
+  }
   if (dest_label > 0 /* dest is tainted */ && value_label == 0 /* src is not tainted */) {
     if (std::string_view(path).starts_with("/cxx_lib")) {
       // Do not create taint source in C++ library
@@ -148,10 +151,6 @@ __polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path,
       name, {reinterpret_cast<uint8_t *>(addr), size});
     if (rng) {
       fprintf(stderr, "[*] Create taint source by store: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
-      __polytracker_log_label(rng->first, (char *) "taint_store", path, line, column, function);
-      if (log_untainted_labels_mode) {
-        fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dfsan_read_label(addr, sizeof(uint8_t))); // DEBUG:
-      }
       fprintf(
         polytracker_label_log_file, 
         "- { kind: update, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
@@ -173,6 +172,65 @@ __dfsw___polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char
     return 0;
   }
   return __polytracker_taint_store(addr, value, size, path, line, column, function, addr_label, value_label);
+}
+
+extern "C" dfsan_label
+__polytracker_taint_alloca(void *addr, uint64_t size, char* function) {
+  // alloca(0x0000000000000000,size=0000)
+  char name[37] = {};
+  snprintf(name, sizeof(name), "alloca(%p,size=%ld)", addr, size);
+
+  auto rng = get_polytracker_tdag().create_taint_source(
+    name, {reinterpret_cast<uint8_t *>(addr), size});
+  if (rng) {
+    fprintf(stderr, "[*] Create taint source by alloca: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
+    return rng->first;
+  } else {
+    fprintf(stderr, "[!] Failed to create taint source for alloca: address=%p, size=%ld\n", addr, size); // DEBUG: 
+  }
+  return 0; // not to call dfsan_set_label()
+}
+
+extern "C" dfsan_label
+__dfsw___polytracker_taint_alloca(void *addr, uint64_t size, char* function
+                                 /* rest of params are omitted */) {
+  if (!polytracker_is_initialized()) {
+    return 0;
+  }
+  return __polytracker_taint_alloca(addr, size, function);
+}
+
+extern "C" dfsan_label
+__polytracker_taint_ctor(void *addr, uint64_t size, char *path, uint64_t line, uint64_t column, char* function) {
+  // NOTE: テイントを引き継ぐのはオーバーテイント。
+  //       なぜなら、別のスタックフレームでallocされて参照されていたポインタが渡されることがあるから。
+
+  // ctor(0x0000000000000000,size=0000)
+  char name[35] = {};
+  snprintf(name, sizeof(name), "ctor(%p,size=%ld)", addr, size);
+
+  auto rng = get_polytracker_tdag().create_taint_source(
+    name, {reinterpret_cast<uint8_t *>(addr), size});
+  if (rng) {
+    fprintf(stderr, "[*] Create taint source by ctor: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
+    __polytracker_log_label(rng->first, (char *) "ctor", path, line, column, function);
+    if (log_untainted_labels_mode) {
+      fprintf(stderr, "[*] __polytracker_taint_ctor: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dfsan_read_label(addr, sizeof(uint8_t))); // DEBUG: 
+    }
+    return rng->first;
+  } else {
+    fprintf(stderr, "[!] Failed to create taint source for ctor: address=%p, size=%ld\n", addr, size); // DEBUG: 
+  }
+  return 0; // not to call dfsan_set_label()
+}
+
+extern "C" dfsan_label
+__dfsw___polytracker_taint_ctor(void *addr, uint64_t size, char *path, uint64_t line, uint64_t column, char* function
+                                 /* rest of params are omitted */) {
+  if (!polytracker_is_initialized()) {
+    return 0;
+  }
+  return __polytracker_taint_ctor(addr, size, path, line, column, function);
 }
 
 extern "C" void

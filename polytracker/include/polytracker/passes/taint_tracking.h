@@ -36,6 +36,8 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   llvm::FunctionCallee label_log_ptr_fn;
   // Create taint source for store
   llvm::FunctionCallee taint_store_fn;
+  llvm::FunctionCallee taint_alloca_fn;
+  llvm::FunctionCallee taint_ctor_fn;
   llvm::FunctionCallee set_taint_label_fn;
 
   std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
@@ -49,6 +51,8 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   void insertCondBrLogCall(llvm::Instruction &inst, llvm::Value *val);
   void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val, std::string opcode, bool insert_after = false);
   void insertTaintStoreCall(llvm::StoreInst &inst);
+  void insertTaintAllocaCall(llvm::AllocaInst &inst);
+  void insertTaintConstructorCall(llvm::CallInst &inst);
   void insertTaintStartupCall(llvm::Module &mod);
   void declareLoggingFunctions(llvm::Module &mod);
 
@@ -60,7 +64,9 @@ public:
   void visitSwitchInst(llvm::SwitchInst &si);
   void visitLoadInst(llvm::LoadInst &II);
   void visitStoreInst(llvm::StoreInst &II);
+  void visitAllocaInst(llvm::AllocaInst &II);
   void visitCallInst(llvm::CallInst &II);
+  void visitReturnInst(llvm::ReturnInst &II);
   void visitDbgDeclareInst(llvm::DbgDeclareInst &II);
   void visitIntrinsicInst(llvm::IntrinsicInst &II);
 };

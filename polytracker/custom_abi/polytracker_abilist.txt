@@ -49,6 +49,10 @@ fun:__polytracker_log_label_ptr=uninstrumented
 fun:__polytracker_log_label_ptr=custom
 fun:__polytracker_taint_store=uninstrumented
 fun:__polytracker_taint_store=custom
+fun:__polytracker_taint_alloca=uninstrumented
+fun:__polytracker_taint_alloca=custom
+fun:__polytracker_taint_ctor=uninstrumented
+fun:__polytracker_taint_ctor=custom
 fun:__polytracker_set_taint_label=uninstrumented
 fun:__polytracker_set_taint_label=discard
 # -- end
