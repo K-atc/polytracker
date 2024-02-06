@@ -99,11 +99,10 @@ EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) {
             sizeof(uint8_t)
           );
         }
-        fprintf(stderr, "\n"); // DEBUG:
         return;
       }
     }
-    fprintf(stderr, "(unknown)\n"); // DEBUG:
+    fprintf(stderr, "(unknown)"); // DEBUG:
   }
   fprintf(stderr, "\n"); // DEBUG:
 }

@@ -176,19 +176,27 @@ __dfsw___polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char
 
 extern "C" dfsan_label
 __polytracker_taint_alloca(void *addr, uint64_t size, char* function) {
-  // alloca(0x0000000000000000,size=0000)
-  char name[37] = {};
-  snprintf(name, sizeof(name), "alloca(%p,size=%ld)", addr, size);
+  fprintf(
+    stderr, "[*] Remove existing taint label by alloca: address=%p, size=%ld, label=%d\n",
+    addr, size, dfsan_read_label(addr, sizeof(uint8_t))
+  ); // DEBUG: 
+  dfsan_set_label(0, addr, size);
+  return 0;
 
-  auto rng = get_polytracker_tdag().create_taint_source(
-    name, {reinterpret_cast<uint8_t *>(addr), size});
-  if (rng) {
-    fprintf(stderr, "[*] Create taint source by alloca: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
-    return rng->first;
-  } else {
-    fprintf(stderr, "[!] Failed to create taint source for alloca: address=%p, size=%ld\n", addr, size); // DEBUG: 
-  }
-  return 0; // not to call dfsan_set_label()
+  // NOTE: alloca までテイントソースとして扱うとタグの数が足りなくなるので諦める
+  // // alloca(0x0000000000000000,size=0000)
+  // char name[37] = {};
+  // snprintf(name, sizeof(name), "alloca(%p,size=%ld)", addr, size);
+
+  // auto rng = get_polytracker_tdag().create_taint_source(
+  //   name, {reinterpret_cast<uint8_t *>(addr), size});
+  // if (rng) {
+  //   fprintf(stderr, "[*] Create taint source by alloca: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
+  //   return rng->first;
+  // } else {
+  //   fprintf(stderr, "[!] Failed to create taint source for alloca: address=%p, size=%ld\n", addr, size); // DEBUG: 
+  // }
+  // return 0; // not to call dfsan_set_label()
 }
 
 extern "C" dfsan_label
@@ -202,8 +210,14 @@ __dfsw___polytracker_taint_alloca(void *addr, uint64_t size, char* function
 
 extern "C" dfsan_label
 __polytracker_taint_ctor(void *addr, uint64_t size, char *path, uint64_t line, uint64_t column, char* function) {
-  // NOTE: テイントを引き継ぐのはオーバーテイント。
-  //       なぜなら、別のスタックフレームでallocされて参照されていたポインタが渡されることがあるから。
+  // NOTE: allocaでテイントソースを再生成しない限り、テイントを引き継ぐのはオーバーテイント。
+  //       なぜなら、別のスタックフレームでallocaされて参照されていたポインタ（addrs）が渡されることがあるから。
+  {
+    dfsan_label dest_label = dfsan_read_label(addr, sizeof(uint8_t));
+    if (dest_label > 0) {
+      return dest_label;
+    } 
+  }
 
   // ctor(0x0000000000000000,size=0000)
   char name[35] = {};

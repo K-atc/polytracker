@@ -127,6 +127,17 @@ std::string getPath(llvm::DILocation *loc) {
     loc->getDirectory().str() + "/" + loc->getFilename().str();
 }
 
+std::string getPath(llvm::Function *F) {
+  if (F) {
+    if (llvm::DISubprogram *loc = F->getSubprogram(); loc) {
+      return loc->getDirectory().empty() ? 
+        loc->getFilename().str() :
+        loc->getDirectory().str() + "/" + loc->getFilename().str();
+        }
+  }
+  return "";
+}
+
 std::string getFunction(llvm::Instruction &inst) {
   return inst.getFunction() ? 
       inst.getFunction()->getName().str() :
@@ -291,6 +302,13 @@ getAllocationSize(llvm::CallInst &II) {
 }
 
 void TaintTrackingPass::insertTaintAllocaCall(llvm::AllocaInst &inst) {
+  if (llvm::Type *type = inst.getAllocatedType(); type) {
+    if (type->getStructName().startswith("class.std") || type->getStructName().startswith("struct")) {
+      llvm::errs() << "[*] Skip: " << type->getStructName() << "\n"; // DEBUG:
+      return;
+    }
+  }
+
   llvm::BasicBlock::iterator it(&inst);
   it++;
   llvm::Instruction* nextInst = &(*it);
@@ -301,7 +319,7 @@ void TaintTrackingPass::insertTaintAllocaCall(llvm::AllocaInst &inst) {
 
   std::string function = getFunction(inst);
   std::optional<llvm::TypeSize> size = getAllocationSize(inst);
-  if (size && *size > 1) {
+  if (size && *size > 8) {
     ir.CreateCall(taint_alloca_fn, {
       ir.CreateBitCast(&llvm::cast<llvm::Value>(inst), ir.getInt8PtrTy()),
       ir.getInt64(*size),
@@ -411,7 +429,11 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
 }
 
 void TaintTrackingPass::visitAllocaInst(llvm::AllocaInst &II) {
-  // TODO: Omit instrumentations in C/C++ libs
+  std::string path = getPath(II.getFunction());
+  if (path.starts_with("/cxx_lib") || path.starts_with("/polytracker")) {
+    return;
+  }
+
   if (II.getAllocatedType()->isStructTy()) {
     llvm::errs() << "[*] visitAllocaInst: struct type: "; // DEBUG:
     print(II); // DEBUG:
@@ -437,11 +459,11 @@ void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
   }
 
   // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
-  // if (isCtorOrDtor(II.getCalledFunction())){
-  //   if (llvm::Value *dest = II.getOperand(0); isPointerTy(dest)) {
-  //     insertTaintConstructorCall(II);
-  //   }
-  // }
+  if (isCtorOrDtor(II.getCalledFunction())){
+    if (llvm::Value *dest = II.getOperand(0); isPointerTy(dest)) {
+      insertTaintConstructorCall(II);
+    }
+  }
 
   {
     llvm::Type *type = II.getType();
