@@ -263,6 +263,29 @@ __polytracker_set_taint_label(uint8_t *addr, uint64_t size, dfsan_label start_la
   }
 }
 
+extern "C" void
+__polytracker_memcpy(uint8_t *dest, const uint8_t *src, size_t n, char *path, uint64_t line, uint64_t column, char* function) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+
+  printf("[*] __polytracker_memcpy: dest=%p, src=%p, n=%#lx\n", dest, src, n); // DEBUG:
+  for (size_t i = 0; i < n; i++) {
+    dfsan_label src_label = dfsan_read_label(src + i, sizeof(uint8_t));
+    if (src_label > 0) {
+      dfsan_label dest_label = dfsan_read_label(dest + i, sizeof(uint8_t));
+      dfsan_set_label(src_label, dest + i, sizeof(uint8_t));
+      if (dest_label > 0) {
+        fprintf(
+          polytracker_label_log_file, 
+          "- { kind: update, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
+          dest_label, src_label, path, line, column, function
+        );
+      }
+    }
+  }
+}
+
 extern "C" void __taint_start() {
   taint_start();
   polytracker_initialize();

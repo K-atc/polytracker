@@ -435,8 +435,6 @@ void TaintTrackingPass::visitAllocaInst(llvm::AllocaInst &II) {
   }
 
   if (II.getAllocatedType()->isStructTy()) {
-    llvm::errs() << "[*] visitAllocaInst: struct type: "; // DEBUG:
-    print(II); // DEBUG:
     insertTaintAllocaCall(II);
   }
 }
@@ -507,6 +505,28 @@ void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &II) {
     if (llvm::Value *op = II.getOperand(0); isPointerTy(op)) {
       insertLabelLogCall(II, op, II.getOpcodeName());
     }
+  } else if (II.getIntrinsicID() == llvm::Intrinsic::memcpy) {
+    llvm::DILocation *loc = II.getDebugLoc();
+    if (loc == NULL) {
+      return;
+    }
+
+    llvm::IRBuilder<> ir(&II);
+    std::string path = getPath(loc);
+    if (path.starts_with("/cxx_lib")) {
+      // Do not track dataflow in c++ library
+      return;
+    }
+    std::string function = getFunction(II, loc);
+    ir.CreateCall(dfsan_memcpy_fn, {
+      II.getOperand(0), // dest
+      II.getOperand(1), // src
+      II.getOperand(2), // n
+      getOrCreateGlobalStringPtr(ir, path),
+      ir.getInt64(loc->getLine()),
+      ir.getInt64(loc->getColumn()),
+      getOrCreateGlobalStringPtr(ir, function),
+    });
   }
 }
 
@@ -600,6 +620,22 @@ void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {
           false
       )
   );
+  dfsan_memcpy_fn = mod.getOrInsertFunction(
+      "__polytracker_memcpy", 
+      llvm::FunctionType::get(
+          ir.getVoidTy(),
+          {
+            ir.getInt8PtrTy(),
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+            ir.getInt8PtrTy(),
+          }, 
+          false
+      )
+    );
 }
 
 llvm::PreservedAnalyses
