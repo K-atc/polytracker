@@ -85,14 +85,14 @@ TEST_CASE("Serialize deserialize for different events") {
     auto range{std::get<td::taint_range_t>(rsl)};
     SECTION("Default does not affect control flow") {
       for (auto lbl = range.first; lbl < range.second; lbl++) {
-        auto st{std::get<td::SourceTaint>(labels.read_label(lbl))};
+        auto st{std::get<td::SourceTaint>(*labels.read_label(lbl))};
         REQUIRE(!st.affects_control_flow);
       }
     }
 
     SECTION("Source taint") {
       labels.affects_control_flow(range.first);
-      auto st{std::get<td::SourceTaint>(labels.read_label(range.first))};
+      auto st{std::get<td::SourceTaint>(*labels.read_label(range.first))};
       REQUIRE(st.affects_control_flow);
     }
 
@@ -100,13 +100,13 @@ TEST_CASE("Serialize deserialize for different events") {
       auto ul = labels.union_taint(range.first, range.second - 1);
       labels.affects_control_flow(ul);
 
-      auto u = std::get<td::UnionTaint>(labels.read_label(ul));
+      auto u = std::get<td::UnionTaint>(*labels.read_label(ul));
       REQUIRE(u.affects_control_flow);
 
-      auto s1 = std::get<td::SourceTaint>(labels.read_label(u.lower));
+      auto s1 = std::get<td::SourceTaint>(*labels.read_label(u.lower));
       REQUIRE(s1.affects_control_flow);
 
-      auto s2 = std::get<td::SourceTaint>(labels.read_label(u.higher));
+      auto s2 = std::get<td::SourceTaint>(*labels.read_label(u.higher));
       REQUIRE(s2.affects_control_flow);
     }
 
@@ -115,9 +115,9 @@ TEST_CASE("Serialize deserialize for different events") {
       auto rl2 = labels.union_taint(rl, range.first + 2);
       labels.affects_control_flow(rl2);
 
-      auto r = std::get<td::RangeTaint>(labels.read_label(rl2));
+      auto r = std::get<td::RangeTaint>(*labels.read_label(rl2));
       for (auto lbl = r.first; lbl <= r.last; lbl++) {
-        REQUIRE(std::get<td::SourceTaint>(labels.read_label(lbl))
+        REQUIRE(std::get<td::SourceTaint>(*labels.read_label(lbl))
                     .affects_control_flow);
       }
     }
@@ -188,7 +188,7 @@ TEST_CASE("Serialize deserialize for different events") {
       CAPTURE(l2);
       CAPTURE(newlbl);
 
-      auto t = labels.read_label(newlbl);
+      auto t = *labels.read_label(newlbl);
       if (auto *ut = std::get_if<td::UnionTaint>(&t)) {
         REQUIRE(newlbl != ut->lower);
         REQUIRE(newlbl != ut->higher);

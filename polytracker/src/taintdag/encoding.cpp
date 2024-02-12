@@ -56,7 +56,7 @@ storage_t encode(Taint const &taint) {
   }
 }
 
-Taint decode(storage_t encoded) {
+Taint decode(storage_t encoded, label_t label) {
   assert(encoded > 0);
 
   bool affects_control_flow = (encoded >> affects_control_flow_shift) & 1;
@@ -70,7 +70,7 @@ Taint decode(storage_t encoded) {
   label_t b = encoded & label_mask;
   if (a == b)
     error_exit("Decoding invalid taint value, ", a, " == ", b,
-               " encoded: ", encoded);
+               " encoded: ", encoded, " label: ", label, " (if encoded is 0, then given label is not registered to polytracker)");
 
   if (a < b) {
     // RangeTaint

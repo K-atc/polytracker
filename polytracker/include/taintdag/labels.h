@@ -21,6 +21,7 @@ namespace taintdag {
 
 struct Labels : public FixedSizeAlloc<storage_t> {
   static constexpr uint8_t tag{2};
+  // Allocation size is about 16 GB
   static constexpr size_t allocation_size{sizeof(storage_t) *
                                           (static_cast<size_t>(max_label) + 1)};
 
@@ -45,15 +46,19 @@ struct Labels : public FixedSizeAlloc<storage_t> {
         });
     // TODO(hbrodin): Check valid return
     auto first = index(*maybe_range->begin());
-    auto last = first + length - 1;
+    auto last = first + maybe_range->size() - 1;
     return {first, last};
   }
 
-  Taint read_label(label_t lbl) const {
-    return decode(*std::next(begin(), lbl));
+  std::optional<Taint> read_label(label_t lbl) const {
+    auto encoded = *std::next(begin(), lbl);
+    if ((encoded & 0x3fffffffffffffff) == 0)
+      return {};
+    return decode(encoded, lbl);
   }
 
   // Create a taint union
+  // __dfsan_union() から呼ばれる。l, r は __dfsan_union() の引数
   label_t union_taint(label_t l, label_t r) {
     // TODO (hbrodin): Might already be covered by DFSAN
     if (l == r)
@@ -68,7 +73,13 @@ struct Labels : public FixedSizeAlloc<storage_t> {
 
     auto lval = read_label(l);
     auto rval = read_label(r);
-    auto result = union_::compute(l, lval, r, rval);
+    if (!lval || !rval) {
+      fprintf(stderr, "[!] union_taint: lval or rval is empty: l=%d, r=%d\n", l, r); // DEBUG:
+      if (lval) return l;
+      if (rval) return r;
+      return 0;
+    }
+    auto result = union_::compute(l, *lval, r, *rval);
     if (auto lbl = std::get_if<label_t>(&result))
       return *lbl;
 
@@ -192,13 +203,11 @@ struct Labels : public FixedSizeAlloc<storage_t> {
         continue;
       }
       auto encoded = begin()[l];
-      if (encoded == 0) {
-        // Do nothing (is correct?)
-        continue;
-      }
 
       set_affects_control_flow(l);
-      std::visit(visitor, decode(encoded));
+      if ((encoded & 0x3fffffffffffffff) > 0) {
+        std::visit(visitor, decode(encoded, l));
+      }
     }
   }
 

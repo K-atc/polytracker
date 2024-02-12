@@ -30,6 +30,7 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
     if (rng) {
       fprintf(stderr, "[*] Create taint source by malloc: address=%p, size=%#lx, label=%d:%d\n", new_mem, size, rng->first, rng->second); // DEBUG: 
       *ret_label = rng->first;
+
       for (size_t i = 0; i < sizeof(malloc_map); i++) {
         if (malloc_map[i].address == nullptr) {
           malloc_map[i].address = new_mem;
@@ -83,8 +84,9 @@ EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) {
   // NOTE: Omit free() to avoid reuse heap memory
   // free(mem); 
 
-  fprintf(stderr, "[*] free: mem=%p", mem); // DEBUG: 
   if (mem) {
+    fprintf(stderr, "[*] free: mem=%p", mem); // DEBUG: 
+    
     dfsan_set_label(0, mem, sizeof(uint8_t));
 
     for (size_t i = 0; i < sizeof(malloc_map); i++) {
@@ -102,7 +104,7 @@ EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) {
         return;
       }
     }
-    fprintf(stderr, "(unknown)"); // DEBUG:
+    fprintf(stderr, ", size=(unknown)"); // DEBUG:
   }
   fprintf(stderr, "\n"); // DEBUG:
 }

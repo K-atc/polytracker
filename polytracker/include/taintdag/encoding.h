@@ -9,6 +9,7 @@
 #pragma once
 
 #include "taintdag/taint.h"
+#include <optional>
 
 namespace taintdag {
 
@@ -18,7 +19,7 @@ storage_t encode(Taint const &taint);
 
 // Decodes encoded value into Taint. If encoded is not 'valid' the process will
 // exit with error.
-Taint decode(storage_t encoded);
+Taint decode(storage_t encoded, label_t label);
 
 // True is encoded value is source taint
 bool is_source_taint(storage_t encoded);

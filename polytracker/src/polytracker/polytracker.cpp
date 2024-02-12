@@ -113,53 +113,58 @@ __dfsw___polytracker_log_label_ptr(void* ptr, char* opcode, char *path, uint64_t
   // e.g. int* ptr = malloc(sizeof(int)); ptr[0] = 1; int a = ptr[0];
   //           ~~~                        ~~~                 ~~~
   //           label 1                    label 2             label 1
-  if (log_untainted_labels_mode) {
-    fprintf(stderr, "[*] __dfsw___polytracker_log_label_ptr: dfsan_read_label(ptr=%p, sizeof(uint8_t))", ptr); // DEBUG: 
-  }
+  // if (log_untainted_labels_mode) {
+  //   fprintf(stderr, "[*] __dfsw___polytracker_log_label_ptr: dfsan_read_label(ptr=%p, sizeof(uint8_t))", ptr); // DEBUG: 
+  // }
   if (!ptr) {
-    if (log_untainted_labels_mode) {
-      fprintf(stderr, "=(Failed)\n"); // DEBUG: 
-    }
+    // if (log_untainted_labels_mode) {
+    //   fprintf(stderr, "=(Failed)\n"); // DEBUG: 
+    // }
     return;
   }
 
   dfsan_label label = dfsan_read_label(ptr, sizeof(uint8_t));
   __polytracker_log_label(label, opcode, path, line, column, function);
-  if (log_untainted_labels_mode) {
-    fprintf(stderr, "=%d\n", label); // DEBUG: 
-  }
+  // if (log_untainted_labels_mode) {
+  //   fprintf(stderr, "=%d\n", label); // DEBUG: 
+  // }
 }
 
 extern "C" dfsan_label
 __polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char *path, uint64_t line, uint64_t column, char* function,
                                  dfsan_label _addr_label, dfsan_label value_label) {
   dfsan_label dest_label = dfsan_read_label(addr, sizeof(uint8_t));
-  if (log_untainted_labels_mode) {
-    fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dest_label); // DEBUG: 
-  }
+  // if (log_untainted_labels_mode) {
+  //   fprintf(stderr, "[*] __polytracker_taint_store: dfsan_read_label(addr=%p, sizeof(uint8_t))=%d\n", addr, dest_label); // DEBUG: 
+  // }
   if (dest_label > 0 /* dest is tainted */ && value_label == 0 /* src is not tainted */) {
     if (std::string_view(path).starts_with("/cxx_lib")) {
       // Do not create taint source in C++ library
       return dest_label;
     }
 
-    // store(*0x0000000000000000=0x0000000000000000,size=00)
-    char name[53] = {};
-    snprintf(name, sizeof(name), "store(*%p=%#lx,size=%ld)", addr, value, size);
+    // NOTE: テイントタグの節約のため、古いテイントタグを使う
+    dfsan_set_label(dest_label, addr, size);
+    __polytracker_log_label(dest_label, (char *) "store", path, line, column, function);
+    return dest_label;
 
-    auto rng = get_polytracker_tdag().create_taint_source(
-      name, {reinterpret_cast<uint8_t *>(addr), size});
-    if (rng) {
-      fprintf(stderr, "[*] Create taint source by store: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
-      fprintf(
-        polytracker_label_log_file, 
-        "- { kind: update, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
-        dest_label, rng->first, path, line, column, function
-      );
-      return rng->first;
-    } else {
-      fprintf(stderr, "[!] Failed to create taint source for store: address=%p, size=%ld\n", addr, size); // DEBUG: 
-    }
+    // // store(*0x0000000000000000=0x0000000000000000,size=00)
+    // char name[53] = {};
+    // snprintf(name, sizeof(name), "store(*%p=%#lx,size=%ld)", addr, value, size);
+
+    // auto rng = get_polytracker_tdag().create_taint_source(
+    //   name, {reinterpret_cast<uint8_t *>(addr), size});
+    // if (rng) {
+    //   fprintf(stderr, "[*] Create taint source by store: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
+    //   fprintf(
+    //     polytracker_label_log_file, 
+    //     "- { kind: update, cause: store, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
+    //     dest_label, rng->first, path, line, column, function
+    //   );
+    //   return rng->first;
+    // } else {
+    //   fprintf(stderr, "[!] Failed to create taint source for store: address=%p, size=%ld\n", addr, size); // DEBUG: 
+    // }
   }
   __polytracker_log_label(dest_label, (char *) "store", path, line, column, function);
   return 0; // not to call dfsan_set_label()
@@ -176,10 +181,12 @@ __dfsw___polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char
 
 extern "C" dfsan_label
 __polytracker_taint_alloca(void *addr, uint64_t size, char* function) {
-  fprintf(
-    stderr, "[*] Remove existing taint label by alloca: address=%p, size=%ld, label=%d\n",
-    addr, size, dfsan_read_label(addr, sizeof(uint8_t))
-  ); // DEBUG: 
+  if (log_untainted_labels_mode) {
+    fprintf(
+      stderr, "[*] Remove existing taint label by alloca: address=%p, size=%ld, label=%d\n",
+      addr, size, dfsan_read_label(addr, sizeof(uint8_t))
+    ); // DEBUG: 
+  }
   dfsan_set_label(0, addr, size);
   return 0;
 
@@ -215,6 +222,7 @@ __polytracker_taint_ctor(void *addr, uint64_t size, char *path, uint64_t line, u
   {
     dfsan_label dest_label = dfsan_read_label(addr, sizeof(uint8_t));
     if (dest_label > 0) {
+      __polytracker_log_label(dest_label, (char *) "ctor", path, line, column, function);
       return dest_label;
     } 
   }
@@ -269,7 +277,9 @@ __polytracker_memcpy(uint8_t *dest, const uint8_t *src, size_t n, char *path, ui
     return;
   }
 
-  printf("[*] __polytracker_memcpy: dest=%p, src=%p, n=%#lx\n", dest, src, n); // DEBUG:
+  if (log_untainted_labels_mode) {
+    fprintf(stderr, "[*] __polytracker_memcpy: dest=%p, src=%p, n=%#lx\n", dest, src, n); // DEBUG:
+  }
   for (size_t i = 0; i < n; i++) {
     dfsan_label src_label = dfsan_read_label(src + i, sizeof(uint8_t));
     if (src_label > 0) {
@@ -278,7 +288,7 @@ __polytracker_memcpy(uint8_t *dest, const uint8_t *src, size_t n, char *path, ui
       if (dest_label > 0) {
         fprintf(
           polytracker_label_log_file, 
-          "- { kind: update, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
+          "- { kind: update, cause: memcpy, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
           dest_label, src_label, path, line, column, function
         );
       }

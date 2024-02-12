@@ -121,6 +121,17 @@ std::string symbolize(const llvm::Value *val) {
   return str;
 }
 
+bool isPointerTy(llvm::Value *value) {
+  if (value == NULL) {
+    return false;
+  }
+  llvm::Type *type = value->getType();
+  if (type == NULL) {
+    return false;
+  }
+  return type->isPointerTy();
+}
+
 std::string getPath(llvm::DILocation *loc) {
   return loc->getDirectory().empty() ? 
     loc->getFilename().str() :
@@ -291,10 +302,16 @@ std::optional<llvm::TypeSize>
 getAllocationSize(llvm::CallInst &II) {
   const llvm::DataLayout &DL = II.getModule()->getDataLayout();
 
+  if (II.arg_size() == 0) {
+    return {};
+  }
   if (llvm::Value *arg = II.getArgOperand(0); arg) {
     // Get pointee type
     if (llvm::PointerType *PT = llvm::cast<llvm::PointerType>(arg->getType())) {
       llvm::Type *type = PT->getPointerElementType();
+      if (type->isFunctionTy()) {
+        return {};
+      }
       return DL.getTypeAllocSize(type);
     }
   }
@@ -328,28 +345,31 @@ void TaintTrackingPass::insertTaintAllocaCall(llvm::AllocaInst &inst) {
   }
 }
 
-void TaintTrackingPass::insertTaintConstructorCall(llvm::CallInst &inst) {
-  llvm::Value* instance = inst.getArgOperand(0);
-  if (!instance) {
+void TaintTrackingPass::insertTaintConstructorCall(llvm::CallInst &II) {
+  if (II.arg_size() == 0) {
+    return;
+  }
+  llvm::Value* dest = II.getArgOperand(0);
+  if (!isPointerTy(dest)) {
     return;
   }
 
-  llvm::DILocation *loc = inst.getDebugLoc();
+  llvm::DILocation *loc = II.getDebugLoc();
   if (loc == NULL) {
     return;
   }
 
-  llvm::IRBuilder<> ir(&inst);
+  llvm::IRBuilder<> ir(&II);
   std::string path = getPath(loc);
   if (path.starts_with("/cxx_lib")) {
     // Do not track dataflow in c++ library
     return;
   }
-  std::string function = getFunction(inst, loc);
-  std::optional<llvm::TypeSize> size = getAllocationSize(inst);
+  std::string function = getFunction(II, loc);
+  std::optional<llvm::TypeSize> size = getAllocationSize(II);
   if (size && *size > 1) {
     ir.CreateCall(taint_ctor_fn, {
-      ir.CreateBitCast(instance, ir.getInt8PtrTy()),
+      ir.CreateBitCast(dest, ir.getInt8PtrTy()),
       ir.getInt64(*size),
       getOrCreateGlobalStringPtr(ir, path),
       ir.getInt64(loc->getLine()),
@@ -363,17 +383,6 @@ void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
   assert(taint_start_fn.getCallee());
   auto func{llvm::cast<llvm::Function>(taint_start_fn.getCallee())};
   llvm::appendToGlobalCtors(mod, func, 0);
-}
-
-bool isPointerTy(llvm::Value *value) {
-  if (value == NULL) {
-    return false;
-  }
-  llvm::Type *type = value->getType();
-  if (type == NULL) {
-    return false;
-  }
-  return type->isPointerTy();
 }
 
 void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
@@ -450,28 +459,23 @@ bool isCtorOrDtor(llvm::Function *F) {
 
 void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
   for (auto &op : II.operands()) {
-    llvm::Type *type = op->getType();
-    if (type && type->isPointerTy()) {
+    if (isPointerTy(op)) {
       insertLabelLogCall(II, op, "call_param");
     }
   }
 
   // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
-  if (isCtorOrDtor(II.getCalledFunction())){
-    if (llvm::Value *dest = II.getOperand(0); isPointerTy(dest)) {
-      insertTaintConstructorCall(II);
-    }
-  }
+  // NOTE: インスタンスを返す関数は、返り値がvoidの代わりに、第1引数が返り値の型のポインタ
+  // if (isCtorOrDtor(II.getCalledFunction())){
+  insertTaintConstructorCall(II);
 
-  {
-    llvm::Type *type = II.getType();
-    if (type && type->isPointerTy()) {
-      insertLabelLogCall(II, &cast<llvm::Value>(II), II.getOpcodeName(), true);
-    }
-  }
+  // Track taint tag of return value
+  insertLabelLogCall(II, &cast<llvm::Value>(II), II.getOpcodeName(), true);
 }
 
 void TaintTrackingPass::visitReturnInst(llvm::ReturnInst &II) {
+  // NOTE: C++でスタック確保してるように見えるインスタンスをreturnするときには、
+  //       return voidしつつ第1引数に戻り値を入れている模様
   if (isPointerTy(II.getReturnValue())) {
     insertLabelLogCall(II, II.getReturnValue(), II.getOpcodeName());
   }

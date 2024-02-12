@@ -21,7 +21,7 @@ extern std::function<void(int)> error_function;
 template <typename... Msgs> void error_exit(Msgs &&...msgs) {
   std::stringstream ss;
   (ss << ... << msgs);
-  std::cerr << "[error🥺] " << ss.str() << std::endl;
+  fprintf(stderr, "[error] %s\n", ss.str().c_str());
   error_function(-1);
 }
 } // namespace taintdag

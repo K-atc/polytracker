@@ -10,7 +10,7 @@ TEST_CASE("Encoding decoding") {
   for (auto i=0;i<100000;i++) {
     auto [t,_] = test::rand_taint();
     auto encoded = taintdag::encode(t);
-    Taint decoded = taintdag::decode(encoded);
+    Taint decoded = taintdag::decode(encoded, 0);
     REQUIRE(decoded == t);
   }
 }
