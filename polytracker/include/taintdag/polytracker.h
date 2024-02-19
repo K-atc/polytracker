@@ -80,6 +80,8 @@ public:
   // Log function exit
   void function_exit(Functions::index_t index);
 
+  void save();
+
 private:
   taint_range_t create_source_taint(source_index_t src,
                                     std::span<uint8_t const> dst,

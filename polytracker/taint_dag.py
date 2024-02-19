@@ -444,9 +444,11 @@ class TDFile:
         self.label_bits = 31
         self.label_mask = 0x7FFFFFFF
         self.val1_shift = self.label_bits
-        self.source_index_mask = 0xFF
-        self.source_index_bits = 8
-        self.source_offset_mask = (1 << 54) - 1
+        self.source_index_bits = 16 # Same with source_index_t
+        self.source_index_mask = (1 << self.source_index_bits) - 1
+        self.storage_bits = 64
+        self.source_offset_bits = self.storage_bits - self.source_index_bits - 2
+        self.source_offset_mask = (1 << self.source_offset_bits) - 1
 
         self.buffer = mmap(file.fileno(), 0, prot=PROT_READ)
 
@@ -806,6 +808,10 @@ class TDTaintForest(TaintForest):
         self.node_cache[label] = result
 
         return result
+
+    @property
+    def node_count(self):
+        return len(self.node_cache)
 
     def nodes(self) -> Iterator[TDTaintForestNode]:
         label = max(self.node_cache.keys())

@@ -206,4 +206,8 @@ void PolyTracker::function_exit(Functions::index_t index) {
   events.log_fn_event(Event::kind_t::exit, index);
 }
 
+void PolyTracker::save() {
+  output_file_.save();
+}
+
 } // namespace taintdag

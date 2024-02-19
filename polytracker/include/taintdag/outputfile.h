@@ -116,16 +116,21 @@ public:
     }
   }
 
-  ~OutputFile() {
-    // Update the memory actually used by each section
-    // TODO(hbrodin): Consider other implementation strategies.
+  void save() {
+    fprintf(stdout, "[*] Saving output file\n");
     size_t _[] = {
         file_header_
             ->sections[util::TypeIndex<Sections,
                                        std::tuple<Sections...>>::index]
             .size = std::get<Sections>(sections_).size()...};
-
     (void)_;
+  }
+
+  ~OutputFile() {
+    // Update the memory actually used by each section
+    // TODO(hbrodin): Consider other implementation strategies.
+    save();
+
     // TODO(hbrodin): Is there a need to notify the sections about shutdown in
     // progress?
   }
