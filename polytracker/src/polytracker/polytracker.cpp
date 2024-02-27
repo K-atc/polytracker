@@ -188,22 +188,25 @@ __polytracker_taint_alloca(void *addr, uint64_t size, char* function) {
     ); // DEBUG: 
   }
   dfsan_set_label(0, addr, size);
-  return 0;
 
-  // NOTE: alloca までテイントソースとして扱うとタグの数が足りなくなるので諦める
-  // // alloca(0x0000000000000000,size=0000)
-  // char name[37] = {};
-  // snprintf(name, sizeof(name), "alloca(%p,size=%ld)", addr, size);
+  // NOTE: alloca までテイントソースとして扱うとタグの数が不足しやすいので注意
+  if (size <= 8) {
+    return 0;
+  }
 
-  // auto rng = get_polytracker_tdag().create_taint_source(
-  //   name, {reinterpret_cast<uint8_t *>(addr), size});
-  // if (rng) {
-  //   fprintf(stderr, "[*] Create taint source by alloca: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
-  //   return rng->first;
-  // } else {
-  //   fprintf(stderr, "[!] Failed to create taint source for alloca: address=%p, size=%ld\n", addr, size); // DEBUG: 
-  // }
-  // return 0; // not to call dfsan_set_label()
+  // alloca(0x0000000000000000,size=0000)
+  char name[37] = {};
+  snprintf(name, sizeof(name), "alloca(%p,size=%ld)", addr, size);
+
+  auto rng = get_polytracker_tdag().create_taint_source(
+    name, {reinterpret_cast<uint8_t *>(addr), size});
+  if (rng) {
+    fprintf(stderr, "[*] Create taint source by alloca: address=%p, size=%ld, label=%d:%d\n", addr, size, rng->first, rng->second); // DEBUG: 
+    return rng->first;
+  } else {
+    fprintf(stderr, "[!] Failed to create taint source for alloca: address=%p, size=%ld\n", addr, size); // DEBUG: 
+  }
+  return 0; // not to call dfsan_set_label()
 }
 
 extern "C" dfsan_label
