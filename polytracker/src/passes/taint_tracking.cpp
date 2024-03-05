@@ -299,7 +299,7 @@ getAllocationSize(llvm::AllocaInst &II) {
 }
 
 std::optional<llvm::TypeSize>
-getAllocationSize(llvm::CallInst &II) {
+getAllocationSize(llvm::CallBase &II) {
   const llvm::DataLayout &DL = II.getModule()->getDataLayout();
 
   if (II.arg_size() == 0) {
@@ -345,10 +345,11 @@ void TaintTrackingPass::insertTaintAllocaCall(llvm::AllocaInst &inst) {
   }
 }
 
-void TaintTrackingPass::insertTaintConstructorCall(llvm::CallInst &II) {
+void TaintTrackingPass::insertTaintConstructorCall(llvm::CallBase &II) {
   if (II.arg_size() == 0) {
     return;
   }
+
   llvm::Value* dest = II.getArgOperand(0);
   if (!isPointerTy(dest)) {
     return;
@@ -457,6 +458,13 @@ bool isCtorOrDtor(llvm::Function *F) {
   return Demangler.isCtorOrDtor();
 }
 
+bool hasSret(llvm::Function *F) {
+  if (!F) {
+    return false;
+  }
+  return F->hasParamAttribute(0, llvm::Attribute::StructRet);
+}
+
 void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
   for (auto &op : II.operands()) {
     if (isPointerTy(op)) {
@@ -466,11 +474,21 @@ void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
 
   // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
   // NOTE: インスタンスを返す関数は、返り値がvoidの代わりに、第1引数が返り値の型のポインタ
-  // if (isCtorOrDtor(II.getCalledFunction())){
-  insertTaintConstructorCall(II);
+  // if (isCtorOrDtor(II.getCalledFunction()) || hasSret(II.getCalledFunction())) {
+    if (llvm::Function* F = II.getCalledFunction(); F) {
+      llvm::errs() << "[*] insertTaintConstructorCall: " << II.getCalledFunction()->getName() << "\n"; // DEBUG:
+    }
+    insertTaintConstructorCall(II);
+  // }
 
   // Track taint tag of return value
   insertLabelLogCall(II, &cast<llvm::Value>(II), II.getOpcodeName(), true);
+}
+
+void TaintTrackingPass::visitInvokeInst(llvm::InvokeInst &II) {
+  if (hasSret(II.getCalledFunction())) {
+    insertTaintConstructorCall(II);
+  }
 }
 
 void TaintTrackingPass::visitReturnInst(llvm::ReturnInst &II) {

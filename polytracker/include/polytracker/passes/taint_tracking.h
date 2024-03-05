@@ -54,7 +54,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   void insertLabelLogCall(llvm::Instruction &inst, llvm::Value *val, std::string opcode, bool insert_after = false);
   void insertTaintStoreCall(llvm::StoreInst &inst);
   void insertTaintAllocaCall(llvm::AllocaInst &inst);
-  void insertTaintConstructorCall(llvm::CallInst &inst);
+  void insertTaintConstructorCall(llvm::CallBase &inst);
   void insertTaintStartupCall(llvm::Module &mod);
   void declareLoggingFunctions(llvm::Module &mod);
 
@@ -68,6 +68,7 @@ public:
   void visitStoreInst(llvm::StoreInst &II);
   void visitAllocaInst(llvm::AllocaInst &II);
   void visitCallInst(llvm::CallInst &II);
+  void visitInvokeInst(llvm::InvokeInst &II);
   void visitReturnInst(llvm::ReturnInst &II);
   void visitDbgDeclareInst(llvm::DbgDeclareInst &II);
   void visitIntrinsicInst(llvm::IntrinsicInst &II);
