@@ -181,6 +181,7 @@ __dfsw___polytracker_taint_store(void *addr, uint64_t value, uint64_t size, char
 
 extern "C" dfsan_label
 __polytracker_taint_alloca(void *addr, uint64_t size, char* function) {
+  // alloca されたメモリは原則テイントを消去する
   if (log_untainted_labels_mode) {
     fprintf(
       stderr, "[*] Remove existing taint label by alloca: address=%p, size=%ld, label=%d\n",

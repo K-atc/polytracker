@@ -336,7 +336,8 @@ void TaintTrackingPass::insertTaintAllocaCall(llvm::AllocaInst &inst) {
 
   std::string function = getFunction(inst);
   std::optional<llvm::TypeSize> size = getAllocationSize(inst);
-  if (size && *size > 8) {
+  if (size) {
+    // テイントをリセットするため原則計装する
     ir.CreateCall(taint_alloca_fn, {
       ir.CreateBitCast(&llvm::cast<llvm::Value>(inst), ir.getInt8PtrTy()),
       ir.getInt64(*size),
