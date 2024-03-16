@@ -387,6 +387,73 @@ void TaintTrackingPass::insertTaintStartupCall(llvm::Module &mod) {
   llvm::appendToGlobalCtors(mod, func, 0);
 }
 
+void TaintTrackingPass::insertLastBranchTracking(llvm::ReturnInst &RI) {
+  llvm::Function *F = RI.getFunction();
+  if (!F) {
+    return;
+  }
+
+  std::string path = getPath(F);
+  std::string function = F->getName().str();
+  if (path.starts_with("/cxx_lib")) {
+    // Do not track dataflow in c++ library
+    return;
+  }
+
+  llvm::Instruction *ip = &(F->getEntryBlock().front());
+  if (!ip) {
+    llvm::errs() << "[*] insertLastBranchTracking: failed to get first instruction on function " << function << "\n"; // DEBUG:
+    return;
+  }
+  llvm::IRBuilder<> IRB(ip);
+
+  // %lastBranch = alloca i64
+  llvm::AllocaInst *last_branch_inst = IRB.CreateAlloca(IRB.getInt64Ty(), nullptr, "lastBranch");
+  if (!last_branch_inst) {
+    llvm::errs() << "[*] insertLastBranchTracking: failed to create alloca\n"; // DEBUG:
+    return;
+  }
+  
+  // %lastBranch = 0
+  IRB.CreateStore(IRB.getInt64(0), last_branch_inst);
+
+  // Instrument unconditional branches
+  for (auto &BB : *F) {
+    for (auto &I : BB) {
+      if (llvm::BranchInst *BI = llvm::dyn_cast<llvm::BranchInst>(&I)) {
+        if (!BI->isConditional()) {
+          IRB.SetInsertPoint(BI);
+          if (llvm::DebugLoc loc = BI->getDebugLoc()) {
+            IRB.CreateStore(
+              IRB.CreateAdd(
+                IRB.CreateShl(IRB.getInt64(loc.getLine()), IRB.getInt64(32)),
+                IRB.getInt64(loc.getCol()),
+                "branchLoc"
+              ),
+              last_branch_inst
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Track last 'br' on return instruction
+  {
+    IRB.SetInsertPoint(&RI);
+    llvm::Value *return_value = &*F->arg_begin();
+    std::string opcode = RI.getOpcodeName();
+    IRB.CreateCall(label_log_ptr_fn, {
+      IRB.CreateBitCast(return_value, IRB.getInt8PtrTy()), // ptr
+      getOrCreateGlobalStringPtr(IRB, opcode + "_ptr"), // opcode
+      getOrCreateGlobalStringPtr(IRB, path),
+      IRB.CreateLShr(IRB.CreateLoad(IRB.getInt64Ty(), last_branch_inst), IRB.getInt64(32)), // line
+      IRB.CreateAnd(IRB.CreateLoad(IRB.getInt64Ty(), last_branch_inst), IRB.getInt64(0xFFFFFFFF)), // col
+      getOrCreateGlobalStringPtr(IRB, function),
+    }, "lastBranchTracking");
+  }
+}
+
 void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
   if (debug_mode) {
     print(II); // DEBUG: 
@@ -497,6 +564,10 @@ void TaintTrackingPass::visitReturnInst(llvm::ReturnInst &II) {
   //       return voidしつつ第1引数に戻り値を入れている模様
   if (isPointerTy(II.getReturnValue())) {
     insertLabelLogCall(II, II.getReturnValue(), II.getOpcodeName());
+  }
+  if (hasSret(II.getFunction())) {
+    llvm::errs() << "[*] insertTaintConstructorCall: sret: " << II.getFunction()->getName() << "\n"; // DEBUG:
+    insertLastBranchTracking(II);
   }
 }
 
