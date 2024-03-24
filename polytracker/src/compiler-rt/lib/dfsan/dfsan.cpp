@@ -623,6 +623,9 @@ static void ClearShadowIfNonZero(void *shadow_addr, uptr size_in_bytes) {
 }
 
 void SetShadow(dfsan_label label, void *addr, uptr size, dfsan_origin origin) {
+  if (!has_valid_shadow_addr(addr)) {
+    return;
+  }
   const uptr beg_shadow_addr = (uptr)__dfsan::shadow_for(addr);
 
   if (0 != label) {

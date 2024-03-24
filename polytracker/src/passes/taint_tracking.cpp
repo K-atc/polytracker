@@ -221,6 +221,9 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
   if (type == NULL) {
     return;
   }
+  if (llvm::isa<llvm::InlineAsm>(val)) {
+    return;
+  }
   if (type->isPointerTy()) {
     ir.CreateCall(label_log_ptr_fn, {
       ir.CreateBitCast(val, ir.getInt8PtrTy()),

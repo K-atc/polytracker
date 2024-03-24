@@ -116,10 +116,11 @@ COPY . /polytracker
 RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN pip3 install /polytracker
 
+# NOTE: Debugビルドだと、計装時にLLVM側のアサーションが通らない
 RUN cmake -GNinja \
   -B/polytracker-build \
   -S/polytracker \
-  -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+  -DCMAKE_BUILD_TYPE="RelWithDebInfo" \
   -DCMAKE_C_COMPILER="clang" \
   -DCMAKE_CXX_COMPILER="clang++" \
   -DCXX_LIB_PATH=/cxx_lib/poly_build \

@@ -50,7 +50,6 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
 EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
                                 dfsan_label ptr_label, dfsan_label size_label,
                                 dfsan_label *ret_label) {
-
   // TODO (hbrodin): This is incorrect. There is not new_size bytes available
   // (typically) but for now, lets just hope that the user of returned memory
   // clears it (no undefined read). This might actually cause a read oob if at
@@ -76,7 +75,7 @@ EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
                       sizeof(char));
     }
   }
-  *ret_label = new_size > 0 ? shadow[0] : 0;
+  *ret_label = shadow.size() > 0 ? shadow[0] : 0;
   return new_mem;
 }
 
