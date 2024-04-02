@@ -8,8 +8,13 @@ install(
         jbig
         libcrypto
         libdeflate
+        libdl
         libjpeg
+        liblzma
+        libm
+        libonig
         libpng
+        libpthread
         libssl
         libtiff
         libz
