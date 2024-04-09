@@ -24,6 +24,15 @@ static void polytracker_initialize() {
   polytracker_init_flag.test_and_set(std::memory_order_relaxed);
 }
 
+// NOTE: polytracker は正常終了時にtdagを保存する。
+//       異常終了する場合でも途中で保存するワークアラウンドを実施する
+extern "C" void __polytracker_save() {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+  get_polytracker_tdag().save();
+}
+
 extern "C" taintdag::Functions::index_t
 __polytracker_log_func_entry(char *name, uint16_t len) {
   if (!polytracker_is_initialized()) {

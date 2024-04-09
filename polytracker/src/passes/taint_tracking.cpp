@@ -364,6 +364,10 @@ void TaintTrackingPass::insertTaintConstructorCall(llvm::CallBase &II) {
     return;
   }
 
+  if (llvm::Function* F = II.getCalledFunction(); F) {
+    llvm::errs() << "[*] insertTaintConstructorCall: " << II.getCalledFunction()->getName() << "\n"; // DEBUG:
+  }
+
   llvm::IRBuilder<> ir(&II);
   std::string path = getPath(loc);
   if (path.starts_with("/cxx_lib")) {
@@ -546,9 +550,6 @@ void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
   // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
   // NOTE: インスタンスを返す関数は、返り値がvoidの代わりに、第1引数が返り値の型のポインタ
   // if (isCtorOrDtor(II.getCalledFunction()) || hasSret(II.getCalledFunction())) {
-    if (llvm::Function* F = II.getCalledFunction(); F) {
-      llvm::errs() << "[*] insertTaintConstructorCall: " << II.getCalledFunction()->getName() << "\n"; // DEBUG:
-    }
     insertTaintConstructorCall(II);
   // }
 

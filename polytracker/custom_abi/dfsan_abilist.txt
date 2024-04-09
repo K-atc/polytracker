@@ -65,6 +65,8 @@ fun:__polytracker_set_taint_label=uninstrumented
 fun:__polytracker_set_taint_label=discard
 fun:__polytracker_memcpy=uninstrumented
 fun:__polytracker_memcpy=discard
+fun:__polytracker_save=uninstrumented
+fun:__polytracker_save=discard
 # -- end
 fun:__polytracker_dump=uninstrumented
 fun:__polytracker_dump=discard
