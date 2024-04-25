@@ -174,9 +174,10 @@ void PolyTracker::taint_sink(int fd, util::Offset offset, label_t label,
   }
 }
 
-void PolyTracker::affects_control_flow(label_t lbl) {
-  output_file_.section<Labels>().affects_control_flow(lbl);
-}
+// NOTE: openssl にてボトルネックになるため無効化
+// void PolyTracker::affects_control_flow(label_t lbl) {
+//   output_file_.section<Labels>().affects_control_flow(lbl);
+// }
 
 void PolyTracker::log_tainted_control_flow(label_t lbl, uint32_t function_id) {
   output_file_.section<ControlFlowLog>().tainted_control_flow(lbl, function_id);

@@ -63,7 +63,8 @@ extern "C" void __polytracker_log_conditional_branch(dfsan_label label) {
   }
 
   if (label > 0) {
-    get_polytracker_tdag().affects_control_flow(label);
+    // NOTE: openssl にてボトルネックになるため無効化
+    // get_polytracker_tdag().affects_control_flow(label);
   }
 }
 

@@ -53,7 +53,7 @@ public:
                                                    std::span<uint8_t> dst);
 
   // Update the label, it affects control flow
-  void affects_control_flow(label_t taint_label);
+  // void affects_control_flow(label_t taint_label);
 
   // Instrumentation callback for when control flow is influenced by a
   // a tainted value
