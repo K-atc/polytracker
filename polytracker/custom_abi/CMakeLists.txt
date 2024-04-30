@@ -22,5 +22,6 @@ install(
         openssl
         openssl_asm
         ssl
+        sqlite3
         xml2
   DESTINATION ${POLYTRACK_RULE_DIR})

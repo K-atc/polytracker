@@ -16,21 +16,20 @@ static bool log_untainted_labels_mode = false;
 static std::atomic_flag polytracker_init_flag = ATOMIC_FLAG_INIT;
 static FILE* polytracker_label_log_file = NULL;
 
+// NOTE: polytracker は正常終了時にtdagを保存する。
+//       異常終了する場合でも途中で保存するワークアラウンドを実施する
+__attribute__((destructor))
+extern "C" void __polytracker_save() {
+  get_polytracker_tdag().save();
+}
+
 static bool polytracker_is_initialized() {
   return polytracker_init_flag.test(std::memory_order_relaxed);
 }
 
 static void polytracker_initialize() {
   polytracker_init_flag.test_and_set(std::memory_order_relaxed);
-}
-
-// NOTE: polytracker は正常終了時にtdagを保存する。
-//       異常終了する場合でも途中で保存するワークアラウンドを実施する
-extern "C" void __polytracker_save() {
-  if (!polytracker_is_initialized()) {
-    return;
-  }
-  get_polytracker_tdag().save();
+  std::atexit(__polytracker_save);
 }
 
 extern "C" taintdag::Functions::index_t

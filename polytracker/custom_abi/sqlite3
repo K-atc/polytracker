@@ -1,0 +1,3 @@
+# To avoid "FATAL: DataFlowSanitizer: unsupported indirect call to vararg function"
+fun:strchrnul=uninstrumented
+fun:strchrnul=discard
