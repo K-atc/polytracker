@@ -62,7 +62,6 @@ extern "C" void __polytracker_log_conditional_branch(dfsan_label label) {
   }
 
   if (label > 0) {
-    // NOTE: openssl にてボトルネックになるため無効化
     // get_polytracker_tdag().affects_control_flow(label);
   }
 }
@@ -307,6 +306,28 @@ __polytracker_memcpy(uint8_t *dest, const uint8_t *src, size_t n, char *path, ui
       }
     }
   }
+}
+
+extern "C" void
+__polytracker_log_dominator(uint64_t dominator, uint64_t dominates, dfsan_label dominator_label, dfsan_label dominates_label) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+  if (dominator_label != 0 && dominates_label != 0) {
+    fprintf(polytracker_label_log_file,
+            "- { kind: dominator, dominator: %d, dominates: %d }\n", 
+            dominator_label, dominates_label
+    );
+  }
+}
+
+extern "C" void
+__dfsw___polytracker_log_dominator(uint64_t dominator, uint64_t dominates,
+                                            dfsan_label dominator_label, dfsan_label dominates_label) {
+  if (!polytracker_is_initialized()) {
+    return;
+  }
+  __polytracker_log_dominator(dominator, dominates, dominator_label, dominates_label);
 }
 
 extern "C" void __taint_start() {

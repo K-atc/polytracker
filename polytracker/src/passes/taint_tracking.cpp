@@ -8,11 +8,11 @@
 
 #include "polytracker/passes/taint_tracking.h"
 
-#include <llvm/IR/IRBuilder.h>
+#include <llvm/Demangle/Demangle.h>
 #include <llvm/IR/DataLayout.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
-#include <llvm/Demangle/Demangle.h>
 
 #include <spdlog/spdlog.h>
 
@@ -364,7 +364,7 @@ void TaintTrackingPass::insertTaintConstructorCall(llvm::CallBase &II) {
     return;
   }
 
-  if (llvm::Function* F = II.getCalledFunction(); F) {
+  if (llvm::Function* F = II.getCalledFunction(); F && debug_mode) {
     llvm::errs() << "[*] insertTaintConstructorCall: " << II.getCalledFunction()->getName() << "\n"; // DEBUG:
   }
 
@@ -470,21 +470,23 @@ void TaintTrackingPass::visitGetElementPtrInst(llvm::GetElementPtrInst &II) {
     if (llvm::isa<llvm::ConstantInt>(idx)) {
       continue;
     }
-    insertCondBrLogCall(II, idx);
+    // insertCondBrLogCall(II, idx);
     insertLabelLogCall(II, idx, II.getOpcodeName());
   }
 }
 
-void TaintTrackingPass::visitBranchInst(llvm::BranchInst &bi) {
-  if (bi.isUnconditional()) {
-    return;
-  }
-  insertCondBrLogCall(bi, bi.getCondition());
-}
+// NOTE: openssl にてボトルネックになるため無効化
+// void TaintTrackingPass::visitBranchInst(llvm::BranchInst &bi) {
+//   if (bi.isUnconditional()) {
+//     return;
+//   }
+//   insertCondBrLogCall(bi, bi.getCondition());
+// }
 
-void TaintTrackingPass::visitSwitchInst(llvm::SwitchInst &si) {
-  insertCondBrLogCall(si, si.getCondition());
-}
+// NOTE: openssl にてボトルネックになるため無効化
+// void TaintTrackingPass::visitSwitchInst(llvm::SwitchInst &si) {
+//   insertCondBrLogCall(si, si.getCondition());
+// }
 
 void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
   if (debug_mode) {
@@ -508,6 +510,7 @@ void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
   if (debug_mode) {
     print(II); // DEBUG: 
   }
+
   // NOTE: Reordering insertion makes no effect
   insertLabelLogCall(II, II.getValueOperand(), II.getOpcodeName());
   insertTaintStoreCall(II);
@@ -734,10 +737,29 @@ void TaintTrackingPass::declareLoggingFunctions(llvm::Module &mod) {
           false
       )
     );
+  dominator_log_fn = mod.getOrInsertFunction(
+      "__polytracker_log_dominator", 
+      llvm::FunctionType::get(
+          ir.getVoidTy(),
+          {
+            ir.getInt64Ty(),
+            ir.getInt64Ty(),
+          }, 
+          false
+      )
+  );
 }
 
 llvm::PreservedAnalyses
-TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
+TaintTrackingPass::run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
+  // if (debug_mode) {
+    llvm::errs() << "[*] DominatorTreeAnalysis on function " << F.getName() << "\n"; // DEBUG:
+  // }
+
+}
+
+llvm::PreservedAnalyses
+TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &MAM) {
   label_ty = llvm::IntegerType::get(mod.getContext(), DFSAN_LABEL_BITS);
   declareLoggingFunctions(mod);
   auto ignore{readIgnoreLists(ignore_lists)};
@@ -747,6 +769,21 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
   if (getenv("POLY_NO_INSTRUMENT")) {
     no_instrument_mode = true;
   }
+
+  // Ensure FunctionAnalysisManagerModuleProxy is available in MAM
+  if (!MAM.getCachedResult<llvm::FunctionAnalysisManagerModuleProxy>(mod)) {
+      llvm::FunctionAnalysisManager FAM;
+      FAM.registerPass([] { return llvm::DominatorTreeAnalysis(); });
+      MAM.registerPass([&] {
+          return llvm::FunctionAnalysisManagerModuleProxy(FAM);
+      });
+  }
+
+  llvm::errs() << "[*] TaintTrackingPass: Start run()\n"; // DEBUG:
+  auto &FAM = MAM.getResult<llvm::FunctionAnalysisManagerModuleProxy>(mod).getManager();
+  FAM.registerPass([] { return llvm::DominatorTreeAnalysis(); });
+  llvm::errs() << "[*] TaintTrackingPass: Start run() 2\n"; // DEBUG:
+
   for (auto &fn : mod) {
     if (no_instrument_mode) {
       break;
@@ -780,9 +817,47 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &mam) {
       continue;
     }
 
-    // llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
-    
+    if (debug_mode)
+      llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
+
     visit(fn);
+
+    llvm::DominatorTree &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(fn);
+    if (debug_mode) DT.print(llvm::errs()); // DEBUG:
+
+    for (auto &BB : fn)
+      for (auto &I : BB)
+        if (auto *II = dyn_cast<llvm::StoreInst>(&I); II) {
+          if (llvm::Value *val = II->getValueOperand(); val)
+            if (llvm::Type *type = val->getType(); type && type->isIntegerTy()) {
+              if (llvm::BasicBlock *BB = II->getParent(); BB)
+                if (auto *DTNode = DT.getNode(BB); DTNode)
+                  if (auto *domNode = DTNode->getIDom())
+                    if (llvm::BasicBlock *domBB = domNode->getBlock(); domBB) {
+                      if (llvm::Instruction *TI = domBB->getTerminator(); TI)
+                        if (auto *BI = dyn_cast<llvm::BranchInst>(TI); BI) {
+                          if (BI->isConditional()) {
+                            if (debug_mode || true) {
+                              llvm::errs() << "[*] Found int store: "; // DEBUG:
+                              print(*II); // DEBUG:
+                              llvm::errs() << "[*] Found dominator: "; // DEBUG:
+                              print(*BI);                              // DEBUG:
+                            }
+                            if (llvm::Value *cond = BI->getCondition(); cond) {
+                              llvm::IRBuilder<> IRB(II);
+                              IRB.CreateCall(
+                                  dominator_log_fn,
+                                  {
+                                      IRB.CreateSExtOrTrunc(cond, IRB.getInt64Ty()),
+                                      IRB.CreateSExtOrTrunc(val, IRB.getInt64Ty()),
+                                  });
+                            }
+                          }
+                        }
+                      }
+                  }
+        }
+
     // If this is the main function, insert a taint-argv call
     if (fn.getName() == "main") {
       emitTaintArgvCall(fn);

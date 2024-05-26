@@ -55,6 +55,10 @@ fun:__polytracker_taint_ctor=uninstrumented
 fun:__polytracker_taint_ctor=custom
 fun:__polytracker_set_taint_label=uninstrumented
 fun:__polytracker_set_taint_label=discard
+fun:__polytracker_memcpy=uninstrumented
+fun:__polytracker_memcpy=discard
+fun:__polytracker_log_dominator=uninstrumented
+fun:__polytracker_log_dominator=custom
 fun:__polytracker_save=uninstrumented
 fun:__polytracker_save=discard
 # -- end

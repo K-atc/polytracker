@@ -8,9 +8,12 @@
 
 #pragma once
 
+#include <llvm/IR/Dominators.h>
 #include <llvm/IR/InstVisitor.h>
-#include <llvm/IR/PassManager.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/PassManager.h>
+#include <llvm/Pass.h>
+
 #include <map>
 #include <inttypes.h>
 
@@ -34,6 +37,8 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   // Log relations of taint labels and variables
   llvm::FunctionCallee label_log_fn;
   llvm::FunctionCallee label_log_ptr_fn;
+  // Log dominators
+  llvm::FunctionCallee dominator_log_fn;
   // Create taint source for store
   llvm::FunctionCallee taint_store_fn;
   llvm::FunctionCallee taint_alloca_fn;
@@ -62,9 +67,11 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
 public:
   llvm::PreservedAnalyses run(llvm::Module &mod,
                               llvm::ModuleAnalysisManager &mam);
+  llvm::PreservedAnalyses run(llvm::Function &F,
+                              llvm::FunctionAnalysisManager &FAM);
   void visitGetElementPtrInst(llvm::GetElementPtrInst &II);
-  void visitBranchInst(llvm::BranchInst &bi);
-  void visitSwitchInst(llvm::SwitchInst &si);
+  // void visitBranchInst(llvm::BranchInst &bi);
+  // void visitSwitchInst(llvm::SwitchInst &si);
   void visitLoadInst(llvm::LoadInst &II);
   void visitStoreInst(llvm::StoreInst &II);
   void visitAllocaInst(llvm::AllocaInst &II);

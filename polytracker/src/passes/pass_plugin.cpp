@@ -6,6 +6,8 @@
  * the LICENSE file found in the root directory of this source tree.
  */
 
+#include <llvm/IR/Dominators.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/PassPlugin.h>
 
@@ -17,8 +19,8 @@
 
 llvm::PassPluginLibraryInfo getPolyTrackerPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "PolyTracker", "",
-          [](llvm::PassBuilder &pb) {
-            pb.registerPipelineParsingCallback(
+          [](llvm::PassBuilder &PB) {
+            PB.registerPipelineParsingCallback(
                 [](llvm::StringRef name, llvm::ModulePassManager &mpm,
                    llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
                   if (name == "pt-dfsan") {
@@ -42,6 +44,30 @@ llvm::PassPluginLibraryInfo getPolyTrackerPluginInfo() {
                     return true;
                   }
                   return false;
+                });
+
+            // PB.registerPipelineParsingCallback(
+            //     [](llvm::StringRef name, llvm::FunctionPassManager &FPM,
+            //        llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
+            //       if (name == "pt-taint") {
+            //         FPM.addPass(polytracker::TaintTrackingPass());
+            //         return true;
+            //       }
+            //       return false;
+            //     });
+
+            // PB.registerAnalysisRegistrationCallback([](llvm::FunctionAnalysisManager &FAM) {
+            //   FAM.registerPass([&] { return llvm::DominatorTreeAnalysis(); });
+            // });
+
+            PB.registerAnalysisRegistrationCallback(
+                [](llvm::ModuleAnalysisManager &MAM) {
+                    auto FAM = std::make_shared<llvm::FunctionAnalysisManager>();
+                    FAM->registerPass([] { return llvm::DominatorTreeAnalysis(); });
+
+                    MAM.registerPass([FAM] mutable {
+                        return llvm::FunctionAnalysisManagerModuleProxy(*FAM);
+                    });
                 });
           }};
 }
