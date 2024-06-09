@@ -303,6 +303,7 @@ __polytracker_memcpy(uint8_t *dest, const uint8_t *src, size_t n, char *path, ui
           "- { kind: update, cause: memcpy, old_label: %d, new_label: %d, path: %s, line: %lu, column: %lu, function: %s }\n", 
           dest_label, src_label, path, line, column, function
         );
+        fflush(polytracker_label_log_file);
       }
     }
   }
@@ -318,6 +319,7 @@ __polytracker_log_dominator(uint64_t dominator, uint64_t dominates, dfsan_label 
             "- { kind: dominator, dominator: %d, dominates: %d }\n", 
             dominator_label, dominates_label
     );
+    fflush(polytracker_label_log_file);
   }
 }
 

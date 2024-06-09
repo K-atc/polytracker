@@ -817,8 +817,13 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &MAM) {
       continue;
     }
 
-    if (debug_mode)
-      llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
+    std::string path = getPath(&fn);
+    if (path.starts_with("/cxx_lib")) {
+      // Do not track dataflow in c++ library
+      continue;
+    }
+
+    if (debug_mode) llvm::errs() << "[*] TaintTrackingPass: " << fn.getName() << "\n"; // DEBUG:
 
     visit(fn);
 
@@ -829,7 +834,7 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &MAM) {
       for (auto &I : BB)
         if (auto *II = dyn_cast<llvm::StoreInst>(&I); II) {
           if (llvm::Value *val = II->getValueOperand(); val)
-            if (llvm::Type *type = val->getType(); type && type->isIntegerTy()) {
+            if (llvm::Type *type = val->getType(); type && (type->isIntegerTy(1) || type->isIntegerTy(8))) {
               if (llvm::BasicBlock *BB = II->getParent(); BB)
                 if (auto *DTNode = DT.getNode(BB); DTNode)
                   if (auto *domNode = DTNode->getIDom())
@@ -838,9 +843,9 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &MAM) {
                         if (auto *BI = dyn_cast<llvm::BranchInst>(TI); BI) {
                           if (BI->isConditional()) {
                             if (debug_mode || true) {
-                              llvm::errs() << "[*] Found int store: "; // DEBUG:
+                              llvm::errs() << "[*|" << fn.getName() << "] Found bool store: "; // DEBUG:
                               print(*II); // DEBUG:
-                              llvm::errs() << "[*] Found dominator: "; // DEBUG:
+                              llvm::errs() << "[*|" << fn.getName() << "] Found dominator : "; // DEBUG:
                               print(*BI);                              // DEBUG:
                             }
                             if (llvm::Value *cond = BI->getCondition(); cond) {

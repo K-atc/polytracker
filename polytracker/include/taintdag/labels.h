@@ -74,7 +74,7 @@ struct Labels : public FixedSizeAlloc<storage_t> {
     auto lval = read_label(l);
     auto rval = read_label(r);
     if (!lval || !rval) {
-      fprintf(stderr, "[!] union_taint: lval or rval is empty: l=%d, r=%d\n", l, r); // DEBUG:
+      // fprintf(stderr, "[!] union_taint: lval or rval is empty: l=%d, r=%d\n", l, r); // DEBUG:
       if (lval) return l;
       if (rval) return r;
       return 0;
