@@ -62,6 +62,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   void insertTaintConstructorCall(llvm::CallBase &inst);
   void insertTaintStartupCall(llvm::Module &mod);
   void insertLastBranchTracking(llvm::ReturnInst &RI);
+  void insertDominatorTrace(llvm::Function &fn, llvm::DominatorTree &DT, llvm::Instruction *II, llvm::Value *val);
   void declareLoggingFunctions(llvm::Module &mod);
 
 public:
