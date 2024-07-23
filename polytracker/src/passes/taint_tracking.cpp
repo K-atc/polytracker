@@ -763,34 +763,29 @@ void TaintTrackingPass::insertDominatorTrace(
 ) {
   if (!val)
     return;
-  if (llvm::Type *type = val->getType();
-      type && (type->isIntegerTy(1) || type->isIntegerTy(8))) {
-    if (llvm::BasicBlock *BB = II->getParent(); BB)
-      if (auto *DTNode = DT.getNode(BB); DTNode)
-        if (auto *domNode = DTNode->getIDom())
-          if (llvm::BasicBlock *domBB = domNode->getBlock(); domBB) {
-            if (llvm::Instruction *TI = domBB->getTerminator(); TI)
-              if (auto *BI = dyn_cast<llvm::BranchInst>(TI); BI) {
-                if (BI->isConditional()) {
-                  if (debug_mode || true) {
-                    llvm::errs() << "[*|" << fn.getName() << "] Found boolean: "; // DEBUG:
-                    print(*II); // DEBUG:
-                    llvm::errs() << "[*|" << fn.getName() << "] Found dominator : "; // DEBUG:
-                    print(*BI); // DEBUG:
-                  }
-                  if (llvm::Value *cond = BI->getCondition(); cond) {
-                    llvm::IRBuilder<> IRB(II);
-                    IRB.CreateCall(
-                        dominator_log_fn,
-                        {
-                            IRB.CreateSExtOrTrunc(cond, IRB.getInt64Ty()),
-                            IRB.CreateSExtOrTrunc(val, IRB.getInt64Ty()),
-                        });
-                  }
+  if (llvm::BasicBlock *BB = II->getParent(); BB)
+    if (auto *DTNode = DT.getNode(BB); DTNode)
+      if (auto *domNode = DTNode->getIDom())
+        if (llvm::BasicBlock *domBB = domNode->getBlock(); domBB)
+          if (llvm::Instruction *TI = domBB->getTerminator(); TI)
+            if (auto *BI = dyn_cast<llvm::BranchInst>(TI); BI)
+              if (BI->isConditional()) {
+                if (debug_mode || true) {
+                  llvm::errs() << "[*|" << fn.getName() << "] Found boolean  : "; // DEBUG:
+                  print(*II); // DEBUG:
+                  llvm::errs() << "[*|" << fn.getName() << "] Found dominator: "; // DEBUG:
+                  print(*BI); // DEBUG:
+                }
+                if (llvm::Value *cond = BI->getCondition(); cond) {
+                  llvm::IRBuilder<> IRB(II);
+                  IRB.CreateCall(
+                      dominator_log_fn,
+                      {
+                          IRB.CreateSExtOrTrunc(cond, IRB.getInt64Ty()),
+                          IRB.CreateSExtOrTrunc(val, IRB.getInt64Ty()),
+                      });
                 }
               }
-            }
-  }
 }
 
 llvm::PreservedAnalyses
@@ -865,20 +860,30 @@ TaintTrackingPass::run(llvm::Module &mod, llvm::ModuleAnalysisManager &MAM) {
     llvm::DominatorTree &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(fn);
     if (debug_mode) DT.print(llvm::errs()); // DEBUG:
 
+    bool found_bool_store = false;
     for (auto &BB : fn)
-      for (auto &I : BB) {
-        if (auto *II = dyn_cast<llvm::StoreInst>(&I); II) {
+      for (auto &I : BB)
+        if (auto *II = dyn_cast<llvm::StoreInst>(&I); II)
           if (llvm::Value *val = II->getValueOperand(); val)
-            insertDominatorTrace(fn, DT, II, val);
-        }
-        if (auto *II = dyn_cast<llvm::BranchInst>(&I); II) {
-          if (II->isConditional()) {
-            if (llvm::Value *val = II->getCondition(); val)
-              insertDominatorTrace(fn, DT, II, val);
+            if (llvm::Type *type = val->getType();
+              type && (type->isIntegerTy(1) || type->isIntegerTy(8))) {
+              found_bool_store = true;
+            }
+    if (found_bool_store)
+      for (auto &BB : fn)
+        for (auto &I : BB)
+          if (auto *II = dyn_cast<llvm::StoreInst>(&I); II) {
+            if (llvm::Value *val = II->getValueOperand(); val)
+              if (llvm::Type *type = val->getType();
+                type && (type->isIntegerTy(1) || type->isIntegerTy(8))) {
+                insertDominatorTrace(fn, DT, II, val);
+              }
+          } else if (auto *II = dyn_cast<llvm::BranchInst>(&I); II) {
+            if (II->isConditional())
+              if (llvm::Value *val = II->getCondition(); val) {
+                insertDominatorTrace(fn, DT, II, val);
+              }
           }
-        }
-      }
-        
 
     // If this is the main function, insert a taint-argv call
     if (fn.getName() == "main") {
