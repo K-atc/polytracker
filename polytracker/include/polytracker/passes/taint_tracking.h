@@ -47,7 +47,7 @@ class TaintTrackingPass : public llvm::PassInfoMixin<TaintTrackingPass>,
   llvm::FunctionCallee dfsan_memcpy_fn;
   
 
-  std::map<llvm::Value *, llvm::DILocalVariable *> value2Metadata;
+  std::map<llvm::Value *, llvm::DILocation *> value2Metadata;
   bool debug_mode = false;
   bool no_instrument_mode = false;
 

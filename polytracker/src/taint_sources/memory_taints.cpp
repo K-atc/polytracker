@@ -6,6 +6,8 @@
 #include <iostream>
 #include <unordered_map>
 
+#define POLYLOG_FD 100
+
 EARLY_CONSTRUCT_EXTERN_GETTER(taintdag::PolyTracker, polytracker_tdag);
 extern bool finished_taint_start;
 typedef struct {
@@ -28,7 +30,7 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
     auto rng = get_polytracker_tdag().create_taint_source(
       name, {reinterpret_cast<uint8_t *>(new_mem), size});
     if (rng) {
-      fprintf(stderr, "[*] Create taint source by malloc: address=%p, size=%#lx, label=%d:%d\n", new_mem, size, rng->first, rng->second); // DEBUG: 
+      dprintf(POLYLOG_FD, "[*] Create taint source by malloc: address=%p, size=%#lx, label=%d:%d\n", new_mem, size, rng->first, rng->second); // DEBUG: 
       *ret_label = rng->first;
 
       for (size_t i = 0; i < sizeof(malloc_map); i++) {
@@ -39,7 +41,7 @@ EXT_C_FUNC void *__dfsw_malloc(size_t size, dfsan_label size_label,
         }
       }
     } else {
-      fprintf(stderr, "[!] Failed to create taint source for malloc: address=%p, size=%#lx\n", new_mem, size); // DEBUG: 
+      dprintf(POLYLOG_FD, "[!] Failed to create taint source for malloc: address=%p, size=%#lx\n", new_mem, size); // DEBUG: 
     }
   }
 
@@ -68,7 +70,7 @@ EXT_C_FUNC void *__dfsw_realloc(void *ptr, size_t new_size,
   }
 
   void *new_mem = realloc(ptr, new_size);
-  fprintf(stderr, "[*] realloc: oldptr=%p, new_mem=%p, new_size=%#lx\n", ptr, new_mem, new_size); // DEBUG: 
+  dprintf(POLYLOG_FD, "[*] realloc: oldptr=%p, new_mem=%p, new_size=%#lx\n", ptr, new_mem, new_size); // DEBUG: 
   if (new_mem != oldptr) {
     for (size_t i = 0; i < shadow.size(); i++) {
       dfsan_set_label(shadow[i], reinterpret_cast<char *>(new_mem) + i,
@@ -84,13 +86,13 @@ EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) {
   // free(mem); 
 
   if (mem) {
-    fprintf(stderr, "[*] free: mem=%p", mem); // DEBUG: 
+    dprintf(POLYLOG_FD, "[*] free: mem=%p", mem); // DEBUG: 
     
     dfsan_set_label(0, mem, sizeof(uint8_t));
 
     for (size_t i = 0; i < sizeof(malloc_map); i++) {
       if (malloc_map[i].address == mem) {
-        fprintf(stderr, ", size=%#lx\n", malloc_map[i].size); // DEBUG: 
+        dprintf(POLYLOG_FD, ", size=%#lx\n", malloc_map[i].size); // DEBUG: 
         malloc_map[i].address = nullptr;
 
         for (int i = 0; i < malloc_map[i].size; i++) {
@@ -103,7 +105,7 @@ EXT_C_FUNC void __dfsw_free(void *mem, dfsan_label mem_label) {
         return;
       }
     }
-    fprintf(stderr, ", size=(unknown)"); // DEBUG:
+    dprintf(POLYLOG_FD, ", size=(unknown)"); // DEBUG:
   }
-  fprintf(stderr, "\n"); // DEBUG:
+  dprintf(POLYLOG_FD, "\n"); // DEBUG:
 }

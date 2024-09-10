@@ -132,6 +132,17 @@ bool isPointerTy(llvm::Value *value) {
   return type->isPointerTy();
 }
 
+bool isIntegerTy(llvm::Value *value) {
+  if (value == NULL) {
+    return false;
+  }
+  llvm::Type *type = value->getType();
+  if (type == NULL) {
+    return false;
+  }
+  return type->isIntegerTy();
+}
+
 std::string getPath(llvm::DILocation *loc) {
   return loc->getDirectory().empty() ? 
     loc->getFilename().str() :
@@ -176,23 +187,22 @@ void TaintTrackingPass::insertLabelLogCall(llvm::Instruction &inst,
     return;
   }
 
-  auto dbg = value2Metadata.find(val);
-  // if (dbg != value2Metadata.end()) {
-    // auto loc = dbg->second;
-    llvm::DILocation *loc = inst.getDebugLoc();
+  llvm::DILocation *loc = inst.getDebugLoc();
+  {
+    auto dbg = value2Metadata.find(val);
+    if (dbg != value2Metadata.end()) {
+      if (dbg->second) {
+        if (debug_mode) {
+          llvm::errs() << "[*] insertLabelLogCall: found "; // DEBUG:
+          dbg->second->print(llvm::errs()); // DEBUG:
+        }
+        loc = dbg->second;
+      }
+    }
+  }
     
   if (loc == NULL) {
     return;
-  }
-
-  if (debug_mode) {
-    llvm::errs() << "[*] insertLabelLogCall: found"; // DEBUG:
-    if (dbg != value2Metadata.end()) {
-      llvm::errs() << " [OK]\n"; // DEBUG:
-    } else {
-      llvm::errs() << " [Mising]\n"; // DEBUG:
-      print(inst);
-    }
   }
 
   std::string path = getPath(loc);
@@ -504,6 +514,12 @@ void TaintTrackingPass::visitLoadInst(llvm::LoadInst &II) {
       /// insertLabelLogCall(II, &llvm::cast<llvm::Value>(II)); // => error: Instruction does not dominate all uses!
     }
   }
+  {
+    llvm::Value *val = llvm::dyn_cast<llvm::Value>(&II);
+    if (val && II.getDebugLoc()) {
+      value2Metadata[val] = II.getDebugLoc();
+    }
+  }
 }
 
 void TaintTrackingPass::visitStoreInst(llvm::StoreInst &II) {
@@ -544,11 +560,13 @@ bool hasSret(llvm::Function *F) {
 }
 
 void TaintTrackingPass::visitCallInst(llvm::CallInst &II) {
-  for (auto &op : II.operands()) {
-    if (isPointerTy(op)) {
-      insertLabelLogCall(II, op, "call_param");
-    }
-  }
+  // for (auto &op : II.operands()) {
+  //   if (isPointerTy(op)) {
+  //     insertLabelLogCall(II, op, "call_param");
+  //   } else if (isIntegerTy(op)) {
+  //     insertLabelLogCall(II, op, "call_param");
+  //   }
+  // }
 
   // NOTE: new でインスタンス化したクラスは、コンストラクタ関数の返り値がvoid。初期化先が第1引数。
   // NOTE: インスタンスを返す関数は、返り値がvoidの代わりに、第1引数が返り値の型のポインタ
@@ -579,19 +597,19 @@ void TaintTrackingPass::visitReturnInst(llvm::ReturnInst &II) {
 }
 
 void TaintTrackingPass::visitDbgDeclareInst(llvm::DbgDeclareInst &II) {
-  if (debug_mode) {
-    print(II); // DEBUG: 
-  }
-  llvm::DILocalVariable *loc = II.getVariable();
-  if (loc) {
-    if (llvm::MetadataAsValue *md = cast<llvm::MetadataAsValue>(II.getOperand(0))) {
-      if (llvm::ValueAsMetadata* val = cast<llvm::ValueAsMetadata>(md->getMetadata())) {
-        if (val->getValue()) {
-          value2Metadata[val->getValue()] = loc;
-        }
-      }
-    }
-  }
+  // if (debug_mode) {
+  //   print(II); // DEBUG: 
+  // }
+  // llvm::DILocalVariable *loc = II.getVariable();
+  // if (loc) {
+  //   if (llvm::MetadataAsValue *md = cast<llvm::MetadataAsValue>(II.getOperand(0))) {
+  //     if (llvm::ValueAsMetadata* val = cast<llvm::ValueAsMetadata>(md->getMetadata())) {
+  //       if (val->getValue()) {
+  //         value2Metadata[val->getValue()] = loc;
+  //       }
+  //     }
+  //   }
+  // }
 }
 
 void TaintTrackingPass::visitIntrinsicInst(llvm::IntrinsicInst &II) {
